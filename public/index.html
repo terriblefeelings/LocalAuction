@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="uk" data-theme="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>LocalAuction</title>
+  <script>
+    try {
+      const th = localStorage.getItem('la_auction_theme') || 'default';
+      document.documentElement.dataset.auctionTheme = th;
+      document.documentElement.dataset.mode = localStorage.getItem('la_auction_mode') || 'dark';
+      if (!localStorage.getItem('la_lang_default')) {
+        localStorage.setItem('pa_lang', 'ua');
+        localStorage.setItem('la_lang_default', '1');
+      } else if (!localStorage.getItem('pa_lang')) {
+        localStorage.setItem('pa_lang', 'ua');
+      }
+    } catch (e) {}
+  </script>
+  <script type="module" crossorigin src="./auc.js"></script>
+  <link rel="stylesheet" crossorigin href="./auc.css">
+</head>
+<body>
+  <div id="root"></div>
+</body>
+</html>

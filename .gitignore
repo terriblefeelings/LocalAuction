@@ -1,0 +1,7 @@
+﻿/target
+*.exe
+*.pdb
+*.dSYM
+/tmp-*
+/dist
+/src/bot_token.rs

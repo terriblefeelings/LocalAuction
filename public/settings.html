@@ -1,0 +1,490 @@
+<!doctype html>
+<html lang="uk" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>LocalAuction</title>
+<script>try { document.documentElement.dataset.theme = localStorage.getItem('la_theme') || 'dark'; } catch (e) {}</script>
+<style>
+  :root {
+    --bg:#0b0b0b; --fg:#cfcfcf; --dim:#7c7c7c; --faint:#565656;
+    --acc:#991d1d; --acc-dim:#5e1414; --line:#232323; --line2:#343434;
+    --sel:#141414; --pickbg:#1a0c0c; --ok:#69a869; --warn:#c45b5b;
+    --mono:"Cascadia Mono","Cascadia Code",Consolas,"SF Mono",Menlo,ui-monospace,monospace;
+    color-scheme: dark;
+  }
+  :root[data-theme="light"] {
+    --bg:#f2f0ea; --fg:#1c1c1c; --dim:#5c5c5c; --faint:#8b8880;
+    --acc:#1d7896; --acc-dim:#1a5f77; --line:#dad6cd; --line2:#c5c0b5;
+    --sel:#e9e5dd; --pickbg:#e2eef4; --ok:#2f7a2f; --warn:#a33333;
+    color-scheme: light;
+  }
+  *,*::before,*::after { box-sizing: border-box; scrollbar-width: none; -ms-overflow-style: none; }
+  *::-webkit-scrollbar { display: none; width: 0; height: 0; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:400 13px/1.5 var(--mono); }
+  .wrap { width:min(980px,calc(100% - 28px)); margin:0 auto; padding:16px 0 28px; }
+  a { color:var(--acc); text-decoration:none; }
+  a:hover { text-decoration:underline; }
+  .hero { display:flex; align-items:center; justify-content:space-between; gap:14px; flex-wrap:wrap; border-bottom:1px solid var(--line); padding-bottom:12px; }
+  .brand { display:flex; align-items:center; gap:10px; min-width:0; }
+  .rat { width:30px; height:30px; color:var(--acc); display:inline-flex; flex:none; }
+  .rat svg { width:100%; height:100%; }
+  h1 { margin:0; font:700 17px/1.1 var(--mono); letter-spacing:.06em; }
+  .sub { color:var(--faint); font-size:10.5px; letter-spacing:.06em; }
+  .hero__actions { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .btn { display:inline-flex; align-items:center; height:26px; padding:0 9px; border:1px solid var(--line2); background:none; color:var(--dim); font:inherit; font-size:10.5px; letter-spacing:.06em; text-transform:uppercase; cursor:pointer; }
+  .btn:hover { color:var(--fg); border-color:var(--acc-dim); }
+  .btn.accent { color:var(--acc); border-color:var(--acc-dim); }
+  .btn.accent:hover { background:var(--acc); border-color:var(--acc); color:var(--bg); }
+  .btn[disabled] { opacity:.4; cursor:not-allowed; }
+  .tabs { display:flex; gap:20px; border-bottom:1px solid var(--line); margin-top:12px; }
+  .tabs button { background:none; border:0; padding:8px 0; color:var(--faint); font:inherit; font-size:11px; letter-spacing:.1em; text-transform:uppercase; cursor:pointer; border-bottom:2px solid transparent; }
+  .tabs button:hover { color:var(--dim); }
+  .tabs button.on { color:var(--acc); border-bottom-color:var(--acc); }
+  .tab { display:none; padding-top:14px; }
+  .tab.on { display:block; }
+  .panel { border:1px solid var(--line); margin-bottom:14px; }
+  .panel__head { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:6px 9px; background:var(--sel); border-bottom:1px solid var(--line); }
+  .panel__title { color:var(--dim); font-size:11px; letter-spacing:.1em; text-transform:uppercase; }
+  .panel__title .tag { color:var(--faint); font-size:10px; }
+  .panel__body { padding:12px; }
+  .panel__body[hidden] { display:none; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:12px 16px; }
+  .field { display:flex; flex-direction:column; gap:5px; }
+  .lbl { color:var(--dim); font-size:10.5px; letter-spacing:.08em; text-transform:uppercase; }
+  input, select { width:100%; height:28px; padding:0 7px; border:1px solid var(--line2); border-radius:0; background:var(--bg); color:var(--fg); font:inherit; font-size:12px; appearance:none; }
+  input:focus, select:focus { outline:none; border-color:var(--acc); }
+  .hint { margin:0; color:var(--faint); font-size:10.5px; }
+  .secret { display:flex; align-items:center; gap:4px; }
+  .secret input { flex:1; min-width:0; }
+  .icon { width:28px; height:28px; padding:0; border:1px solid var(--line2); background:none; color:var(--dim); cursor:pointer; font:inherit; font-size:12px; }
+  .icon:hover { color:var(--acc); border-color:var(--acc-dim); }
+  input.masked { filter: blur(4px); }
+  .chk { position:relative; display:inline-flex; align-items:center; gap:8px; cursor:pointer; color:var(--dim); font-size:10.5px; letter-spacing:.06em; text-transform:uppercase; user-select:none; }
+  .chk input { position:absolute; opacity:0; width:1px; height:1px; }
+  .chk .box { color:var(--faint); font-size:12px; }
+  .chk .box::before { content:"[ ]"; }
+  .chk input:checked + .box::before { content:"[x]"; color:var(--acc); }
+  .chk input:checked ~ .ontext { color:var(--fg); }
+  .btnrow { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:12px; }
+  .list { display:flex; flex-direction:column; }
+  .row { display:flex; align-items:center; gap:14px; padding:7px 0; border-bottom:1px dashed var(--line); }
+  .row:last-child { border-bottom:0; }
+  .row > .lbl { flex:0 0 280px; }
+  .row .ctl { flex:0 1 340px; display:flex; flex-direction:column; gap:4px; min-width:0; }
+  .row .ctl input, .row .ctl select { width:100%; }
+  @media (max-width:640px) {
+    .row { flex-direction:column; align-items:flex-start; gap:4px; }
+    .row > .lbl { flex:none; }
+    .row .ctl { width:100%; }
+  }
+  .status { color:var(--faint); font-size:11px; word-break:break-word; }
+  .status.ok { color:var(--ok); }
+  .status.err { color:var(--warn); }
+  .guide { margin-top:12px; padding-top:10px; border-top:1px dashed var(--line2); }
+  .guide__title { margin-bottom:6px; color:var(--faint); font-size:10px; letter-spacing:.12em; }
+  ol { margin:0; padding-left:20px; color:var(--dim); font-size:11.5px; }
+  ol li { margin:4px 0; }
+  ol b { color:var(--fg); font-weight:600; }
+  .foot { display:flex; align-items:center; justify-content:flex-end; gap:12px; margin-top:18px; padding-top:12px; border-top:1px solid var(--line); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="hero">
+    <div class="brand">
+      <span class="rat"><!--RAT--></span>
+      <h1>LocalAuction</h1>
+      <span class="sub">// налаштування</span>
+    </div>
+    <div class="hero__actions">
+      <a class="btn" href="__AUCTION_URL__" target="_blank">[ ВІДКРИТИ АУКЦІОН ]</a>
+      <button class="btn" id="themeBtn" onclick="toggleTheme()">[ ТЕМА: ТЕМНА ]</button>
+    </div>
+  </header>
+
+  <nav class="tabs">
+    <button data-tab="integration" class="on" onclick="tab('integration')">ІНТЕГРАЦІЇ</button>
+    <button data-tab="bids" onclick="tab('bids')">СТАВКИ</button>
+    <button data-tab="timer" onclick="tab('timer')">ТАЙМЕР</button>
+    <button data-tab="info" onclick="tab('info')">ІНФО</button>
+  </nav>
+
+  <section id="tab_integration" class="tab on">
+    <div class="panel">
+      <div class="panel__head">
+        <span class="panel__title">DONATELLO</span>
+        <label class="chk"><input id="donatelloOn" type="checkbox" /><span class="box"></span><span class="ontext">УВІМКНЕНО</span></label>
+      </div>
+      <div class="panel__body">
+        <div class="field">
+          <label class="lbl" for="channel">ID КАНАЛУ</label>
+          <div class="secret">
+            <input id="channel" class="masked" inputmode="numeric" spellcheck="false" placeholder="123456789012345678" onfocus="this.classList.remove('masked')" />
+            <button type="button" class="icon" title="Показати" onclick="reveal('channel', this)">👁</button>
+            <button type="button" class="icon" title="Копіювати" onclick="copyField('channel', this)">⧉</button>
+          </div>
+          <p class="hint">Посилання або ID приватного каналу донатів.</p>
+        </div>
+        <div class="btnrow">
+          <button class="btn accent" onclick="addBot()">[ ДОДАТИ БОТА НА СЕРВЕР ]</button>
+          <button class="btn" onclick="testDiscord()">[ ПЕРЕВІРИТИ ]</button>
+          <span id="discordStatus" class="status"></span>
+        </div>
+        <div class="guide">
+          <div class="guide__title">ЯК ПІДКЛЮЧИТИ DONATELLO</div>
+          <ol>
+            <li>Натисніть <b>[ ДОДАТИ БОТА НА СЕРВЕР ]</b> і авторизуйте MonkeBOT на своєму сервері.</li>
+            <li>У Discord створіть вебхук для каналу донатів: <b>Налаштування каналу → Інтеграції → Вебхуки → Створити вебхук → Копіювати URL вебхука</b>.</li>
+            <li>Відкрийте <a href="https://donatello.to/panel/settings?tab=integrations" target="_blank">Donatello → Налаштування → Інтеграції</a>.</li>
+            <li>Увімкніть <b>Discord Webhook</b>, вставте URL вебхука, увімкніть <b>«Embedded» повідомлення</b> та надішліть тестове повідомлення.</li>
+            <li>Скопіюйте <b>ID каналу</b> (права кнопка на канал → Копіювати ID каналу; потрібен Режим розробника) і вставте його вище.</li>
+            <li>Натисніть <b>[ ПЕРЕВІРИТИ ]</b>, а потім <b>[ ЗБЕРЕГТИ ]</b>.</li>
+          </ol>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel__head">
+        <span class="panel__title">WEBHOOK <span class="tag">ДОДАТКОВО</span></span>
+        <label class="chk"><input id="webhookOn" type="checkbox" onchange="syncOptional()" /><span class="box"></span><span class="ontext">УВІМКНЕНО</span></label>
+      </div>
+      <div class="panel__body" id="webhookFields" hidden>
+        <div class="field">
+          <label class="lbl" for="webhookUrl">URL ВЕБХУКА</label>
+          <div class="secret">
+            <input id="webhookUrl" class="masked" spellcheck="false" placeholder="https://discord.com/api/webhooks/…" onfocus="this.classList.remove('masked')" />
+            <button type="button" class="icon" title="Показати" onclick="reveal('webhookUrl', this)">👁</button>
+            <button type="button" class="icon" title="Копіювати" onclick="copyField('webhookUrl', this)">⧉</button>
+          </div>
+          <p class="hint">Застосунок визначить канал цього вебхука і читатиме його через бота.</p>
+        </div>
+        <div class="btnrow">
+          <button class="btn" onclick="testWebhook()">[ ПЕРЕВІРИТИ WEBHOOK ]</button>
+          <span id="webhookStatus" class="status"></span>
+        </div>
+        <div class="guide">
+          <div class="guide__title">ЯК ПІДКЛЮЧИТИ ІНШИЙ WEBHOOK</div>
+          <ol>
+            <li>Увімкніть перемикач <b>[x] УВІМКНЕНО</b>.</li>
+            <li>У Discord створіть вебхук у потрібному приватному каналі: <b>Налаштування каналу → Інтеграції → Вебхуки → Створити вебхук</b>, скопіюйте URL.</li>
+            <li>Вставте URL вище. Застосунок знайде канал вебхука.</li>
+            <li>Додайте бота на сервер цього каналу (кнопка <b>[ ДОДАТИ БОТА НА СЕРВЕР ]</b> вище).</li>
+            <li>Натисніть <b>[ ПЕРЕВІРИТИ WEBHOOK ]</b>, потім <b>[ ЗБЕРЕГТИ ]</b>.</li>
+          </ol>
+          <p class="hint">Webhook може надсилати embed або звичайний текст — застосунок розпізнає донора, суму й повідомлення в обох випадках.</p>
+          <p class="hint">Повідомлення Donatello у цьому каналі ігноруються, тому джерела DONATELLO і WEBHOOK можна вмикати разом для одного каналу.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel__head">
+        <span class="panel__title">MONOBANK <span class="tag">ДОДАТКОВО</span></span>
+        <label class="chk"><input id="monoOn" type="checkbox" onchange="syncOptional()" /><span class="box"></span><span class="ontext">УВІМКНЕНО</span></label>
+      </div>
+      <div class="panel__body" id="monoFields" hidden>
+        <div class="grid">
+          <div class="field">
+            <label class="lbl" for="monoToken">API-КЛЮЧ MONOBANK</label>
+            <div class="secret">
+              <input id="monoToken" class="masked" spellcheck="false" placeholder="X-Token" onfocus="this.classList.remove('masked')" />
+              <button type="button" class="icon" title="Показати" onclick="reveal('monoToken', this)">👁</button>
+              <button type="button" class="icon" title="Копіювати" onclick="copyField('monoToken', this)">⧉</button>
+            </div>
+          </div>
+          <div class="field">
+            <label class="lbl" for="monoJar">БАНКА (ПОСИЛАННЯ АБО КОД)</label>
+            <div class="secret">
+              <input id="monoJar" class="masked" spellcheck="false" placeholder="https://send.monobank.ua/jar/…" onfocus="this.classList.remove('masked')" />
+              <button type="button" class="icon" title="Показати" onclick="reveal('monoJar', this)">👁</button>
+              <button type="button" class="icon" title="Копіювати" onclick="copyField('monoJar', this)">⧉</button>
+            </div>
+          </div>
+        </div>
+        <div class="btnrow">
+          <button class="btn" onclick="testMono()">[ ПЕРЕВІРИТИ MONOBANK ]</button>
+          <span id="monoStatus" class="status"></span>
+        </div>
+        <div class="guide">
+          <div class="guide__title">ЯК ПІДКЛЮЧИТИ MONOBANK</div>
+          <ol>
+            <li>Увімкніть перемикач <b>[x] УВІМКНЕНО</b>.</li>
+            <li>Отримайте персональний <b>API-ключ</b> на <a href="https://api.monobank.ua/" target="_blank">api.monobank.ua</a> (скануйте QR у застосунку Monobank).</li>
+            <li>Вставте ключ і посилання на банку.</li>
+            <li>Натисніть <b>[ ПЕРЕВІРИТИ MONOBANK ]</b>, потім <b>[ ЗБЕРЕГТИ ]</b>.</li>
+          </ol>
+          <p class="hint">Monobank опитується раз на хвилину через обмеження API. Донати стають ставками; коментар платежу зіставляється з лотом.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="tab_bids" class="tab">
+    <div class="panel">
+      <div class="panel__head"><span class="panel__title">СТАВКИ</span></div>
+      <div class="panel__body">
+        <div class="list">
+          <div class="row">
+            <label class="lbl" for="minBid">МІНІМАЛЬНА СТАВКА, ГРН</label>
+            <div class="ctl">
+              <input id="minBid" type="number" min="0" step="1" />
+              <p class="hint">Менші донати ігноруються (для всіх джерел).</p>
+            </div>
+          </div>
+          <div class="row">
+            <label class="lbl" for="mode">РЕЖИМ</label>
+            <div class="ctl">
+              <select id="mode">
+                <option value="auto">Автоматично — перший збіг вручну, далі автоматично</option>
+                <option value="full">Повністю автоматично — без підтверджень</option>
+                <option value="manual">Вручну — підтверджувати кожну ставку</option>
+              </select>
+            </div>
+          </div>
+          <div class="row">
+            <label class="lbl" for="currency">ВАЛЮТА</label>
+            <div class="ctl">
+              <select id="currency">
+                <option value="UAH">UAH</option>
+                <option value="USD">USD</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="tab_timer" class="tab">
+    <div class="panel">
+      <div class="panel__head"><span class="panel__title">ТАЙМЕР</span></div>
+      <div class="panel__body">
+        <div class="list">
+          <div class="row"><label class="lbl" for="minutes">ПОЧАТКОВИЙ ЧАС, ХВ</label><div class="ctl"><input id="minutes" type="number" min="0" step="1" /><p class="hint">стартове значення таймера</p></div></div>
+          <div class="row"><label class="lbl" for="lcd">ЗМІНА ЛІДЕРА, СЕК</label><div class="ctl"><input id="lcd" type="number" min="0" step="1" /><p class="hint">лише коли вже є лідер; не для першого лоту</p></div></div>
+          <div class="row"><label class="lbl" for="npd">НОВА ПОЗИЦІЯ, СЕК</label><div class="ctl"><input id="npd" type="number" min="0" step="1" /><p class="hint">лише коли додається новий лот; не для першого</p></div></div>
+          <div class="row"><label class="lbl" for="aed">ДОДАТИ ДО НАЯВНОЇ СТАВКИ, СЕК</label><div class="ctl"><input id="aed" type="number" min="0" step="1" /><p class="hint">коли лот уже має ставки</p></div></div>
+          <div class="row"><label class="lbl" for="tmt">НЕ ДОДАВАТИ ЧАС, ЯКЩО БІЛЬШЕ (ХВ)</label><div class="ctl"><input id="tmt" type="number" min="0" step="1" /><p class="hint">стеля таймера; 0 — без обмеження</p></div></div>
+          <div class="row">
+            <span class="lbl">ЗАГАЛЬНИЙ ЧАС</span>
+            <label class="chk"><input id="showTotal" type="checkbox" /><span class="box"></span><span class="ontext">ПОКАЗУВАТИ</span></label>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="tab_info" class="tab">
+    <div class="panel">
+      <div class="panel__head"><span class="panel__title">LOCALAUCTION</span></div>
+      <div class="panel__body">
+        <div class="grid">
+          <div class="field"><span class="lbl">Версія</span><b id="infoVersion">…</b></div>
+          <div class="field"><span class="lbl">Автор</span><b>terriblefeelings</b></div>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
+          <button class="btn" onclick="checkUpdate()">ПЕРЕВІРИТИ ОНОВЛЕННЯ</button>
+          <button class="btn accent" id="doUpdate" onclick="doUpdate()" disabled>ОНОВИТИ</button>
+        </div>
+        <p class="hint" id="updateStatus" style="margin-top:8px"></p>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel__body" style="padding:8px">
+        <img id="infoShot" alt="" style="display:block;width:100%;max-width:280px;margin:0 auto;border:1px solid var(--line2)" />
+      </div>
+    </div>
+  </section>
+
+  <footer class="foot">
+    <button class="btn accent" onclick="save()">[ ЗБЕРЕГТИ ]</button>
+    <span id="status" class="status"></span>
+  </footer>
+</div>
+
+<script>
+window.API_BASE = "__API_URL__";
+const $ = (id) => document.getElementById(id);
+const API = window.API_BASE || '';
+function say(ok, text) { const s = $('status'); s.className = 'status ' + (ok ? 'ok' : 'err'); s.textContent = text; }
+function tstatus(id, ok, text) { const s = $(id); s.className = 'status ' + (ok ? 'ok' : 'err'); s.textContent = text; }
+
+function tab(name) {
+  document.querySelectorAll('.tab').forEach((el) => el.classList.toggle('on', el.id === 'tab_' + name));
+  document.querySelectorAll('.tabs button').forEach((b) => b.classList.toggle('on', b.dataset.tab === name));
+}
+
+function syncOptional() {
+  $('webhookFields').hidden = !$('webhookOn').checked;
+  $('monoFields').hidden = !$('monoOn').checked;
+}
+
+function applyTheme(t) {
+  document.documentElement.dataset.theme = t;
+  try { localStorage.setItem('la_theme', t); } catch (e) {}
+  $('themeBtn').textContent = t === 'light' ? '[ ТЕМА: СВІТЛА ]' : '[ ТЕМА: ТЕМНА ]';
+}
+function toggleTheme() {
+  applyTheme(document.documentElement.dataset.theme === 'light' ? 'dark' : 'light');
+}
+
+function reveal(id, btn) {
+  const hidden = $(id).classList.toggle('masked');
+  btn.textContent = hidden ? '👁' : '🙈';
+  btn.title = hidden ? 'Показати' : 'Сховати';
+}
+
+async function copyField(id, btn) {
+  const el = $(id);
+  try {
+    await navigator.clipboard.writeText(el.value || '');
+  } catch {
+    el.classList.remove('masked');
+    el.select();
+    document.execCommand('copy');
+  }
+  const old = btn.textContent;
+  btn.textContent = '✓';
+  setTimeout(() => { btn.textContent = old; }, 1200);
+}
+
+async function load() {
+  try {
+    const s = await (await fetch(API + '/api/auc/settings')).json();
+    $('donatelloOn').checked = s.donatelloEnabled !== false;
+    $('channel').value = s.channel || '';
+    $('minBid').value = s.minBid ?? 10;
+    $('mode').value = s.mode || 'auto';
+    $('currency').value = s.currency || 'UAH';
+    $('minutes').value = Math.round((s.timerSeconds || 0) / 60);
+    $('showTotal').checked = !!s.showTotalTime;
+    $('lcd').value = s.leaderChangeDonations || 0;
+    $('npd').value = s.newPositionDonations || 0;
+    $('aed').value = s.addExistingDonations || 0;
+    $('tmt').value = s.timeMoreThanMin || 0;
+    $('webhookOn').checked = !!s.webhookEnabled;
+    $('webhookUrl').value = s.webhookUrl || '';
+    $('monoOn').checked = !!s.monobankEnabled;
+    $('monoToken').value = s.monobankToken || '';
+    $('monoJar').value = s.monobankJar || '';
+    syncOptional();
+  } catch { say(false, 'не вдалося завантажити налаштування'); }
+}
+
+async function save() {
+  const body = {
+    donatelloEnabled: $('donatelloOn').checked,
+    channel: $('channel').value,
+    minBid: Number($('minBid').value || 0),
+    mode: $('mode').value,
+    currency: $('currency').value,
+    timerSeconds: Number($('minutes').value || 0) * 60,
+    showTotalTime: $('showTotal').checked,
+    leaderChangeDonations: Number($('lcd').value || 0),
+    newPositionDonations: Number($('npd').value || 0),
+    addExistingDonations: Number($('aed').value || 0),
+    timeMoreThanMin: Number($('tmt').value || 0),
+    webhookEnabled: $('webhookOn').checked,
+    webhookUrl: $('webhookUrl').value,
+    monobankEnabled: $('monoOn').checked,
+    monobankToken: $('monoToken').value,
+    monobankJar: $('monoJar').value,
+  };
+  try {
+    const r = await fetch(API + '/api/auc/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    if (!r.ok) throw new Error();
+    say(true, 'збережено');
+    load();
+  } catch { say(false, 'не вдалося зберегти'); }
+}
+
+async function addBot() {
+  tstatus('discordStatus', true, 'відкриваю Discord…');
+  try {
+    await fetch(API + '/api/auc/bot/invite', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+  } catch { tstatus('discordStatus', false, 'не вдалося відкрити Discord'); }
+}
+
+function resultText(d) {
+  let msg = 'підключено до #' + (d.channel || 'каналу');
+  if (d.parsed) {
+    msg += ' — останній донат: ' + d.parsed.donor + ' · ' + d.parsed.amount;
+    if (d.parsed.message) msg += ' · "' + d.parsed.message + '"';
+  } else if (d.embed) {
+    const fields = (d.embed.fields || []).map(f => f.name + '=' + f.value).join(' | ');
+    msg += ' — останній embed не розпізнано' + (fields ? ': ' + fields : '');
+  } else if (d.text) {
+    msg += ' — текст: ' + d.text;
+  } else {
+    msg += ' — серед останніх повідомлень немає донатів';
+  }
+  if (d.hint) msg += ' — ' + d.hint;
+  return msg;
+}
+
+async function testDiscord() {
+  tstatus('discordStatus', true, 'перевіряю…');
+  try {
+    const d = await (await fetch(API + '/api/auc/discord/test', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ channel: $('channel').value }) })).json();
+    if (!d.ok) { tstatus('discordStatus', false, 'Помилка: ' + (d.error || 'невідома')); return; }
+    tstatus('discordStatus', true, resultText(d));
+  } catch { tstatus('discordStatus', false, 'не вдалося виконати запит'); }
+}
+
+async function testWebhook() {
+  tstatus('webhookStatus', true, 'перевіряю…');
+  try {
+    const d = await (await fetch(API + '/api/auc/webhook/test', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ webhook: $('webhookUrl').value }) })).json();
+    if (!d.ok) { tstatus('webhookStatus', false, 'Помилка: ' + (d.error || 'невідома')); return; }
+    tstatus('webhookStatus', true, resultText(d));
+  } catch { tstatus('webhookStatus', false, 'не вдалося виконати запит'); }
+}
+
+async function testMono() {
+  tstatus('monoStatus', true, 'перевіряю…');
+  try {
+    const d = await (await fetch(API + '/api/auc/monobank/test', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: $('monoToken').value, jar: $('monoJar').value }) })).json();
+    if (!d.ok) { tstatus('monoStatus', false, 'Помилка: ' + (d.error || 'невідома')); return; }
+    tstatus('monoStatus', true, 'банку знайдено: ' + (d.jar || 'без назви') + ' · баланс ' + d.balance + ' ГРН');
+  } catch { tstatus('monoStatus', false, 'не вдалося виконати запит'); }
+}
+
+async function loadInfo() {
+  try {
+    const d = await (await fetch(API + '/api/app/info')).json();
+    $('infoVersion').textContent = d.version || '—';
+    const r = (d.check && d.check.result) || {};
+    if (r.newer) { $('updateStatus').textContent = 'Доступне оновлення ' + r.latest; $('doUpdate').disabled = false; }
+  } catch (e) { /* info stays as placeholders */ }
+}
+
+async function checkUpdate() {
+  $('updateStatus').textContent = 'перевіряю…';
+  try {
+    const d = await (await fetch(API + '/api/app/update/check', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })).json();
+    if (!d.ok) { $('updateStatus').textContent = 'Не вдалося перевірити: ' + (d.error || 'мережа'); return; }
+    $('updateStatus').textContent = d.newer
+      ? 'Доступне оновлення ' + d.latest
+      : (d.error === 'no_releases' ? 'Релізів ще немає — оновлень нема.' : 'У вас остання версія.');
+    $('doUpdate').disabled = !d.newer;
+    if (d.newer) $('doUpdate').dataset.asset = d.asset || '';
+  } catch { $('updateStatus').textContent = 'Не вдалося звʼязатися з GitHub.'; }
+}
+
+async function doUpdate() {
+  $('updateStatus').textContent = 'завантажую…';
+  try {
+    const d = await (await fetch(API + '/api/app/update/apply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ asset: $('doUpdate').dataset.asset || '' }) })).json();
+    $('updateStatus').textContent = d.message || '';
+  } catch { $('updateStatus').textContent = 'Не вдалося завантажити оновлення.'; }
+}
+
+applyTheme(document.documentElement.dataset.theme === 'light' ? 'light' : 'dark');
+$('infoShot').src = API + '/info.jpg';
+loadInfo();
+load();
+</script>
+</body>
+</html>
