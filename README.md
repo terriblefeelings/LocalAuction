@@ -26,6 +26,10 @@ install the Microsoft Edge WebView2 Runtime). The auction page opens in your nor
 
 ## Discord setup
 
+The repository build ships without a bot token — it is a local secret kept in `src/bot_token.rs`
+(git-ignored) or injected at build time with `LOCALAUCTION_BOT_TOKEN`. Without it the app still
+runs and the settings window works, but Discord message reading is disabled.
+
 The app uses one shared bot (MonkeBOT) — there is no token field.
 
 1. In the settings window press **Add bot to server**, authorize MonkeBOT in your server.
