@@ -128,7 +128,7 @@ try {
 
     # app info + update check (network optional)
     $info = Invoke-RestMethod ($base + '/api/app/info')
-    ok 'app info version' ($info.version -eq '0.1.0' -and $info.repo -ne '')
+    ok 'app info version' ($info.version -match '^\d+\.\d+\.\d+$' -and $info.repo -ne '') ("v=" + $info.version)
     try {
         $u = post '/api/app/update/check' $null
         ok 'update check answers' ($null -ne $u.ok) ("ok=" + $u.ok)
