@@ -129,12 +129,43 @@ pub fn lev(a: &str, b: &str) -> usize {
 }
 pub fn ratio(a: &str, b: &str) -> f64 { let l = a.chars().count().max(b.chars().count()); if l == 0 { 1.0 } else { 1.0 - lev(a, b) as f64 / l as f64 } }
 
-/// find the best lot for a raw input: exact number, exact name, alias, then fuzzy (>= 0.82)
+/// fuzzy match threshold (Levenshtein ratio on normalised text)
+pub const FUZZY_MIN: f64 = 0.82;
+
+/// A lot number typed on its own: `2`, `#2`, `№2`, `лот 2`, `Лот2`, `n2`, `2)`, `(2)`, `02`.
+/// Returns `None` when the text also contains other meaningful words.
+pub fn lot_number(raw: &str) -> Option<i64> {
+    const WORDS: &[&str] = &["лот", "лоту", "lot", "номер", "num", "no", "n"];
+    let mut nums: Vec<i64> = Vec::new();
+    let mut other = false;
+    for tok in raw.split(|c: char| !c.is_alphanumeric()) {
+        if tok.is_empty() { continue; }
+        let t = tok.to_lowercase();
+        if t.chars().all(|c| c.is_ascii_digit()) {
+            if let Ok(n) = t.parse::<i64>() { nums.push(n); }
+            continue;
+        }
+        if WORDS.contains(&t.as_str()) { continue; }
+        let mut glued = false;
+        for w in WORDS {
+            if let Some(rest) = t.strip_prefix(w) {
+                if !rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit()) {
+                    if let Ok(n) = rest.parse::<i64>() { nums.push(n); glued = true; }
+                    break;
+                }
+            }
+        }
+        if !glued { other = true; }
+    }
+    if other || nums.len() != 1 { None } else { nums.pop() }
+}
+
+/// find the best lot for a raw input: exact number, exact name, alias, then fuzzy (>= FUZZY_MIN)
 pub fn match_lot<'a>(lots: &'a [Lot], input: &str) -> Option<&'a Lot> {
     let raw = input.trim(); let n = norm(raw); if n.is_empty() { return None; }
-    let num: i64 = raw.chars().filter(|c| c.is_ascii_digit()).collect::<String>().parse().unwrap_or(-1);
-    let pure_num = { let t = raw.trim_start_matches('#').trim(); !t.is_empty() && t.chars().all(|c| c.is_ascii_digit()) };
-    if pure_num { for l in lots { if l.number == num { return Some(l); } } }
+    if let Some(num) = lot_number(raw) {
+        if let Some(l) = lots.iter().find(|l| l.number == num) { return Some(l); }
+    }
     for l in lots { if norm(&l.title) == n { return Some(l); } }
     for l in lots { if l.aliases.iter().any(|a| norm(a) == n) { return Some(l); } }
     let mut best: Option<(&Lot, f64)> = None;
@@ -143,7 +174,7 @@ pub fn match_lot<'a>(lots: &'a [Lot], input: &str) -> Option<&'a Lot> {
         for a in &l.aliases { s = s.max(ratio(&norm(a), &n)); }
         if best.is_none_or(|(_, bs)| s > bs) { best = Some((l, s)); }
     }
-    best.filter(|(_, s)| *s >= 0.82).map(|(l, _)| l)
+    best.filter(|(_, s)| *s >= FUZZY_MIN).map(|(l, _)| l)
 }
 
 /* ------------------------------------------------------------------ state ops */
@@ -291,6 +322,32 @@ mod tests {
         s.confirmed_lots = s.lots.iter().map(|l| l.id.clone()).collect();
         s
     }
+    #[test] fn number_forms_match_lot() {
+        let mut s = st();
+        for v in ["2", "#2", "№2", "# 2", "лот 2", "Лот2", "лот №2", "n2", "no2", "2)", "(2)", "02", " 2. "] {
+            assert_eq!(s.intake("num", 5.0, v, "manual", "").unwrap().as_deref(), Some("Beta"), "input {v}");
+        }
+        assert_eq!(lot_number("Nintendo 2"), None);   // real words block the number shortcut
+        assert_eq!(lot_number("лот 2 Nintendo"), None);
+        assert_eq!(lot_number("2"), Some(2));
+        assert_eq!(lot_number("№ 12"), Some(12));
+    }
+
+    #[test] fn fuzzy_threshold_is_82_percent() {
+        assert!(ratio("nintendo switch", "nintendo swich") >= FUZZY_MIN);
+        let mut s = AuctionState::default();
+        s.settings.mode = "auto".into();
+        s.make_lot("Nintendo Switch", true);
+        s.confirmed_lots = s.lots.iter().map(|l| l.id.clone()).collect();
+        let got = s.intake("u", 5.0, "nintendo swich", "discord", "").unwrap();
+        assert_eq!(got.as_deref(), Some("Nintendo Switch"));
+        // far enough to miss: waits for the admin instead of matching
+        let got2 = s.intake("v", 5.0, "nintendo", "discord", "").unwrap();
+        assert_eq!(got2, None);
+        assert_eq!(s.lots.len(), 1);
+        assert_eq!(s.pending.len(), 1);
+    }
+
     #[test] fn exact_and_number_and_fuzzy() {
         let mut s = st();
         assert_eq!(s.intake("u1", 10.0, "Alpha", "manual", "").unwrap().as_deref(), Some("Alpha"));
