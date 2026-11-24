@@ -323,7 +323,12 @@ fn ingest_mono(st: &mut State, items: Vec<mono::StatementItem>, min_bid: f64) ->
         seen_mono.push(tx.id.clone());
         if seen_mono.len() > 2000 { seen_mono.remove(0); }
         let uah = tx.amount as f64 / 100.0;
-        if uah < min_bid { continue; }
+        if uah < min_bid {
+            let who = tx.counter_name.as_deref().filter(|s| !s.trim().is_empty())
+                .or(tx.description.as_deref()).unwrap_or("-");
+            log(&format!("mono: ignored {:.0} from {} - below minimum {:.0}", uah, who, min_bid));
+            continue;
+        }
         let donor = tx.counter_name.clone().filter(|s| !s.trim().is_empty())
             .or_else(|| tx.description.clone().filter(|s| !s.trim().is_empty()))
             .unwrap_or_else(|| "Анонім".into());
@@ -1010,7 +1015,7 @@ fn handle(ctx: &Arc<Ctx>, mut request: Request) {
 fn main() {
     let ctx = Arc::new(Ctx::load());
     set_log_path(ctx.base.join("log.txt"));
-    let port = std::env::var("LOCALAUCTION_PORT").ok().and_then(|p| p.parse::<u16>().ok())
+    let mut port = std::env::var("LOCALAUCTION_PORT").ok().and_then(|p| p.parse::<u16>().ok())
         .unwrap_or(ctx.cfg.lock().unwrap().port);
     log(&format!("start: port {} data {}", port, ctx.base.display()));
     {
@@ -1018,8 +1023,29 @@ fn main() {
         log(&format!("discord: bot {} channel '{}' every {}s", bot::NAME, c.channel, c.poll_seconds.max(1)));
     }
 
+    let bind = |p: u16| Server::http(&format!("127.0.0.1:{}", p));
+    let mut server = bind(port);
+    if server.is_err() {
+        let mut next = None;
+        let mut last_err = None;
+        let last = port.saturating_add(25).min(65535);
+        for p in port.saturating_add(1)..=last {
+            match bind(p) {
+                Ok(s) => { next = Some((p, s)); break; }
+                Err(e) => last_err = Some(e),
+            }
+        }
+        match next {
+            Some((p, s)) => {
+                log(&format!("port {} busy - using {}", port, p));
+                port = p;
+                server = Ok(s);
+            }
+            None => { if let Some(e) = last_err { server = Err(e); } }
+        }
+    }
     let addr = format!("127.0.0.1:{}", port);
-    match Server::http(&addr) {
+    match server {
         Ok(server) => {
             let http_ctx = ctx.clone();
             std::thread::spawn(move || {
