@@ -5,3 +5,4 @@
 /tmp-*
 /dist
 /src/bot_token.rs
+/WebView2Loader.dll
