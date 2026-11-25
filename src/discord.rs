@@ -275,16 +275,22 @@ fn parse_text(content: &str) -> Option<Donation> {
     }
 
     let (pos, len) = find_currency(text)?;
-    let amount = amount_in(text)?;
+    let pre = &text[..pos];
+    let (amount, amount_start) = if let Some(v) = leading_number(&text[pos + len..]) {
+        (v, None)
+    } else {
+        match trailing_number_span(pre) { Some((v, st)) => (v, Some(st)), None => return None }
+    };
     if !amount.is_finite() || amount <= 0.0 { return None; }
 
-    let before = text[..pos].trim_end_matches(|c: char| c.is_ascii_digit() || c.is_whitespace() || c == ',' || c == '.');
-    let before = before.trim_end_matches(['–', '—', '-', ':', '|', '·']).trim();
+    let before_raw = match amount_start { Some(st) => pre[..st].trim(), None => pre.trim() };
+    let before = before_raw.trim_end_matches(['-', '–', '—', ':', '|', '·']).trim();
     let mut donor = donor_before(before);
     if !plausible_donor(&donor) {
         donor = donor_after(&text[pos + len..]).unwrap_or_default();
     }
     if !plausible_donor(&donor) { return None; }
+
 
     let after = &text[pos + len..];
     let mut lines = after.lines();
@@ -396,13 +402,36 @@ fn leading_number(s: &str) -> Option<f64> {
     parse_number(&t)
 }
 
-fn trailing_number(s: &str) -> Option<f64> {
-    let rev: String = s.trim_end()
-        .chars().rev()
-        .take_while(|c| c.is_ascii_digit() || *c == ',' || *c == '.' || *c == ' ' || *c == '\u{00A0}')
-        .collect();
-    parse_number(&rev.chars().rev().collect::<String>())
+/// The numeric token(s) right before a currency mark, with the start offset.
+/// Only purely numeric tokens are joined (space thousands), so a donor name ending
+/// in digits ("Test500 500 UAH") yields 500, not 500500.
+fn trailing_number_span(s: &str) -> Option<(f64, usize)> {
+    let mut token_end = s.trim_end().len();
+    let mut start = token_end;
+    let mut parts: Vec<&str> = Vec::new();
+    loop {
+        while token_end > 0 {
+            let (i, ch) = s[..token_end].char_indices().next_back().unwrap();
+            if ch.is_whitespace() { token_end = i } else { break }
+        }
+        if token_end == 0 { break }
+        let mut ts = token_end;
+        while ts > 0 {
+            let (i, ch) = s[..ts].char_indices().next_back().unwrap();
+            if ch.is_whitespace() { break } else { ts = i }
+        }
+        let tok = &s[ts..token_end];
+        if !tok.chars().all(|c| c.is_ascii_digit() || c == ',' || c == '.') { break }
+        parts.push(tok);
+        start = ts;
+        token_end = ts;
+    }
+    if parts.is_empty() { return None; }
+    let joined: String = parts.iter().rev().cloned().collect();
+    parse_number(&joined).map(|v| (v, start))
 }
+
+fn trailing_number(s: &str) -> Option<f64> { trailing_number_span(s).map(|(v, _)| v) }
 
 /// "₴100", "1 234,56", "1,234.56" -> f64.
 pub fn parse_number(s: &str) -> Option<f64> {
@@ -543,6 +572,22 @@ mod tests {
         assert_eq!(d.message, "1");
     }
 
+    #[test]
+    fn plain_text_donor_with_digits_and_amount() {
+        let m = Message { id: "13".into(), content: "Test500 500 UAH\nTest500".into(), ..Default::default() };
+        let d = parse_webhook_donation(&m).expect("donation");
+        assert_eq!(d.donor, "Test500");
+        assert_eq!(d.amount, 500.0);
+        assert_eq!(d.message, "Test500");
+    }
+
+    #[test]
+    fn plain_text_space_thousands() {
+        let m = Message { id: "14".into(), content: "Ivan 1 500 UAH\n-".into(), ..Default::default() };
+        let d = parse_webhook_donation(&m).expect("donation");
+        assert_eq!(d.donor, "Ivan");
+        assert_eq!(d.amount, 1500.0);
+    }
     #[test]
     fn amount_forms() {
         assert_eq!(parse_number("₴100"), Some(100.0));
