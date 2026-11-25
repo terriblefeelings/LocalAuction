@@ -1,14 +1,20 @@
 //! Monobank jar widget ("дружня банка"): foreign jars can't be read through the
 //! personal API. We subscribe to the same public WebSocket the widget uses and also
-//! reconcile the public balance once a minute, so a missed alert still becomes a bid.
+//! reconcile the public balance every 5 minutes, so a missed alert still becomes a bid.
 use crate::{log, now_ms, Ctx};
 use serde_json::Value;
+use std::io::ErrorKind;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tungstenite::client::ClientRequestBuilder;
-use tungstenite::Message;
+use tungstenite::stream::MaybeTlsStream;
+use tungstenite::{Error as WsError, Message};
 
 const WS: &str = "wss://send.monobank.ua/api/web/wss";
+/// The widget page re-sends `subscribe` every 3 minutes: the server stops pushing
+/// alerts once the subscription lease expires. A read timeout gives us a timer.
+const TICK: Duration = Duration::from_secs(30);
+const RESUB: Duration = Duration::from_secs(120);
 
 pub fn spawn(ctx: Arc<Ctx>) {
     let ws = ctx.clone();
@@ -46,14 +52,33 @@ fn session(ctx: &Arc<Ctx>, token: &str, jar: &str) -> Result<(), String> {
         .with_header("Origin", "https://send.monobank.ua")
         .with_header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36");
     let (mut ws, _) = tungstenite::connect(req).map_err(|e| e.to_string())?;
+    if let MaybeTlsStream::Rustls(s) = ws.get_ref() {
+        let _ = s.sock.set_read_timeout(Some(TICK));
+    }
+    // alert ids may restart per connection, so a fresh socket starts a fresh dedup list
+    ctx.state.lock().unwrap().seen_widget.clear();
     let sub = serde_json::json!({"c":"subscribe","data":{"event":"/api/web/jar/statement","params":{"qrToken":token}}});
-    ws.send(Message::text(sub.to_string())).map_err(|e| e.to_string())?;
+    let sub_text = sub.to_string();
+    ws.send(Message::text(sub_text.clone())).map_err(|e| e.to_string())?;
+    let mut sub_at = Instant::now();
     log(&format!("monobank widget: listening to jar {}", if jar.is_empty() { "?" } else { jar }));
     loop {
-        match ws.read().map_err(|e| e.to_string())? {
-            Message::Text(t) => handle(ctx, t.as_str()),
-            Message::Close(_) => return Ok(()),
-            _ => {}
+        match ws.read() {
+            Ok(Message::Text(t)) => handle(ctx, t.as_str()),
+            Ok(Message::Close(_)) => return Ok(()),
+            Ok(_) => {}
+            Err(WsError::Io(e)) if matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => {}
+            Err(e) => return Err(e.to_string()),
+        }
+        let (on, token_now, jar_now) = {
+            let c = ctx.cfg.lock().unwrap();
+            (c.mono_widget_enabled, c.mono_widget_token.trim().to_string(), c.mono_widget_jar.trim().to_string())
+        };
+        if !on || token_now != token || jar_now != jar { return Ok(()); }
+        if sub_at.elapsed() >= RESUB {
+            ws.send(Message::text(sub_text.clone())).map_err(|e| e.to_string())?;
+            sub_at = Instant::now();
+            log("monobank widget: subscription renewed");
         }
     }
 }
@@ -79,16 +104,19 @@ fn handle(ctx: &Arc<Ctx>, text: &str) {
         let (donor, lot_text) = split_desc(it["description"].as_str().unwrap_or(""));
         let mut st = ctx.state.lock().unwrap();
         if st.seen_widget.iter().any(|x| x == &id) { continue; }
-        st.seen_widget.push(id);
+        st.seen_widget.push(id.clone());
         if st.seen_widget.len() > 2000 { st.seen_widget.remove(0); }
         changed = true;
         if uah < min {
             log(&format!("monobank widget: ignored {:.0} - below minimum {:.0}", uah, min));
             continue;
         }
-        if st.auc.intake(&donor, uah, &lot_text, "monobank", "").is_ok() {
-            st.widget_ws_sum += kop.round() as i64;
-            log(&format!("monobank widget: {:.0} from {}", uah, donor));
+        match st.auc.intake(&donor, uah, &lot_text, "monobank", "") {
+            Ok(_) => {
+                st.widget_ws_sum += kop.round() as i64;
+                log(&format!("monobank widget: {:.0} from {} (id {})", uah, donor, id));
+            }
+            Err(e) => log(&format!("monobank widget: {:.0} from {} skipped - {}", uah, donor, e)),
         }
     }
     if changed { ctx.save_state(); }
