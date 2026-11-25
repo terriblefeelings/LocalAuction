@@ -410,3 +410,5 @@
 :root[data-auction-theme="terminal"] .mini.add{background:none;border:1px solid #e08a3c;color:#e08a3c}
 .addlot{display:inline-flex;align-items:center;gap:4px}
 .addlot input{width:54px;height:24px;padding:0 4px;font-size:12px;border-radius:4px;border:1px solid var(--line2,var(--line));background:var(--field);color:var(--fg);text-align:center}
+.pitem.immune{box-shadow:0 0 0 2px #e8489e}
+:root[data-auction-theme="retro"] .pitem.immune,:root[data-auction-theme="terminal"] .pitem.immune{box-shadow:0 0 0 2px #e8489e}

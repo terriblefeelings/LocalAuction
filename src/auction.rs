@@ -34,6 +34,7 @@ pub struct Bid {
     pub amount: f64,
     #[serde(default)] pub redemption_id: String,
     #[serde(default)] pub user_input: String,
+    #[serde(default)] pub immune_block: bool,
     #[serde(default)] pub at: i64,
 }
 
@@ -231,16 +232,26 @@ impl AuctionState {
         }
 
         let matched = match_lot(&self.lots, user_input).map(|l| (l.id.clone(), l.title.clone()));
-        let bid = Bid { id: uid(), lot_id: matched.as_ref().map(|m| m.0.clone()).unwrap_or_default(),
+        let mut bid = Bid { id: uid(), lot_id: matched.as_ref().map(|m| m.0.clone()).unwrap_or_default(),
             lot_title: matched.as_ref().map(|m| m.1.clone()).unwrap_or_default(), username: username.to_string(),
-            source: source.to_string(), amount, redemption_id: redemption_id.to_string(), user_input: user_input.to_string(), at: now_ms() };
+            source: source.to_string(), amount, redemption_id: redemption_id.to_string(), user_input: user_input.to_string(), at: now_ms(), immune_block: false };
 
         if amount < 0.0 {
-            if self.settings.mode == "manual" { self.pending.insert(0, bid); return Ok(None); }
+            let (immune, enough) = matched.as_ref()
+                .and_then(|(id, _)| self.lots.iter().find(|l| &l.id == id))
+                .map(|l| (l.immune, l.total + amount >= 0.0))
+                .unwrap_or((false, false));
+            if self.settings.mode == "manual" {
+                bid.immune_block = immune;
+                self.pending.insert(0, bid);
+                return Ok(None);
+            }
             let Some((lot_id, lot_title)) = matched else { self.pending.insert(0, bid); return Ok(None); };
-            let allowed = self.lots.iter().find(|l| l.id == lot_id)
-                .map(|l| !l.immune && l.total + amount >= 0.0).unwrap_or(false);
-            if !allowed { self.pending.insert(0, bid); return Ok(None); }
+            if immune || !enough {
+                bid.immune_block = immune;
+                self.pending.insert(0, bid);
+                return Ok(None);
+            }
             if self.settings.mode == "auto" && !self.confirmed_lots.contains(&lot_id) {
                 self.pending.insert(0, bid); return Ok(None);
             }
@@ -321,7 +332,7 @@ impl AuctionState {
             let (tname, tamt) = top.map(|t| (t.0, t.1)).unwrap_or((String::new(), lot.total));
             self.winner = Some(Bid { id: uid(), lot_id: lot.id.clone(), lot_title: lot.title.clone(),
                 username: tname, source: String::new(), amount: tamt,
-                redemption_id: String::new(), user_input: String::new(), at: now_ms() });
+                redemption_id: String::new(), user_input: String::new(), at: now_ms(), immune_block: false });
             self.status = "closed".into();
         }
     }
@@ -375,6 +386,30 @@ mod tests {
         assert_eq!(s.lots[0].total, -40.0);
     }
 
+    #[test] fn manual_immune_minus_is_flagged() {
+        let mut s = AuctionState::default();
+        s.settings.mode = "full".into();
+        s.make_lot("Big", true);
+        s.intake("u", 2000.0, "Big", "discord", "").unwrap();
+        s.settings.mode = "manual".into();
+        assert_eq!(s.intake("v", -100.0, "Big", "discord", "").unwrap(), None);
+        assert!(s.pending[0].immune_block);
+        assert_eq!(s.lots[0].total, 2000.0);
+    }
+    #[test] fn immune_minus_pending_is_flagged() {
+        let mut s = AuctionState::default();
+        s.settings.mode = "full".into();
+        s.make_lot("Big", true);
+        s.intake("u", 2000.0, "Big", "discord", "").unwrap();
+        assert_eq!(s.intake("v", -100.0, "Big", "discord", "").unwrap(), None);
+        assert!(s.pending[0].immune_block);
+        let mut t = AuctionState::default();
+        t.settings.mode = "full".into();
+        t.make_lot("Small", true);
+        t.intake("u", 50.0, "Small", "discord", "").unwrap();
+        assert_eq!(t.intake("v", -100.0, "Small", "discord", "").unwrap(), None);
+        assert!(!t.pending[0].immune_block);
+    }
     #[test] fn single_2000_donation_gives_immunity() {
         let mut s = AuctionState::default();
         s.settings.mode = "full".into();
