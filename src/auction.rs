@@ -388,6 +388,24 @@ mod tests {
         s.apply_bid(b, &lid, "Big");
         assert_eq!(s.lots[0].total, 1900.0);
     }
+    #[test] fn zbiruk_symbol_accepts_numbers_and_fuzzy() {
+        let mut s = st(); // Alpha(1), Beta(2), auto mode, confirmed
+        let (sign, text) = split_sign("+#2", true);
+        assert_eq!(sign, 1i8);
+        assert_eq!(s.intake("u", 10.0 * sign as f64, &text, "discord", "").unwrap().as_deref(), Some("Beta"));
+        let (sign, text) = split_sign("- #2", true);
+        assert_eq!(sign, -1i8);
+        s.intake("v", 5.0 * sign as f64, &text, "discord", "").unwrap();
+        assert_eq!(s.lots[1].total, 5.0);
+        let (sign, text) = split_sign("+Alphha", true);
+        assert_eq!(sign, 1i8);
+        s.intake("w", 10.0 * sign as f64, &text, "discord", "").unwrap();
+        assert_eq!(s.lots[0].total, 10.0);
+        let (sign, text) = split_sign("- Alphha", true);
+        assert_eq!(sign, -1i8);
+        s.intake("x", 4.0 * sign as f64, &text, "discord", "").unwrap();
+        assert_eq!(s.lots[0].total, 6.0);
+    }
     #[test] fn number_forms_match_lot() {
         let mut s = st();
         for v in ["2", "#2", "№2", "# 2", "лот 2", "Лот2", "лот №2", "n2", "no2", "2)", "(2)", "02", " 2. "] {
