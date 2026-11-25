@@ -921,10 +921,21 @@ fn handle(ctx: &Arc<Ctx>, mut request: Request) {
             "/api/auc/pending/add" => {
                 let id = g(&v, "id").to_string();
                 let number = gf(&v, "number");
+                let title = g(&v, "title").trim().to_string();
                 let sign = gf(&v, "sign");
                 let mut st = ctx.state.lock().unwrap();
                 let a = &mut st.auc;
-                let target = a.lots.iter().find(|l| l.number as f64 == number).map(|l| (l.id.clone(), l.title.clone()));
+                let existing = if number > 0.0 {
+                    a.lots.iter().find(|l| l.number as f64 == number).map(|l| (l.id.clone(), l.title.clone()))
+                } else { None };
+                let target = match existing {
+                    Some(t) => Some(t),
+                    None if !title.is_empty() => {
+                        let l = a.make_lot(&title, true);
+                        Some((l.id.clone(), l.title.clone()))
+                    }
+                    None => None,
+                };
                 if let (Some((lid, lt)), Some(i)) = (target, a.pending.iter().position(|b| b.id == id)) {
                     let mut b = a.pending.remove(i);
                     if sign < 0.0 { b.amount = -b.amount.abs(); }

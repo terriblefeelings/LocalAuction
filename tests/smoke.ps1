@@ -103,6 +103,14 @@ try {
     ok 'pending add merges into existing lot' ((lotByNumber $s 3).total -eq ($before + 300) -and $s.pending.Count -eq 0) ("total=" + (lotByNumber $s 3).total)
     ok 'merged bid is approved in history' (($s.history | Where-Object { $_.status -eq 'approved' }).Count -ge 4)
 
+    # pending add with a name creates a new lot
+    $null = post '/api/auc/bid' @{ username = 'Named'; amount = 250; userInput = 'random'; source = 'webhook' }
+    $s = state
+    $null = post '/api/auc/pending/add' @{ id = $s.pending[0].id; number = 0; title = 'FromPending'; sign = 1 }
+    $s = state
+    $named = $s.lots | Where-Object { $_.title -eq 'FromPending' }
+    ok 'pending add creates a named lot' ($s.pending.Count -eq 0 -and $named -and $named.total -eq 250)
+
     # full auto creates lots with no approval
     $null = post '/api/auc/settings' @{ mode = 'full' }
     $null = post '/api/auc/bid' @{ username = 'Vova'; amount = 400; userInput = 'BrandNewLot'; source = 'discord' }
