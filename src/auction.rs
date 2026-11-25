@@ -20,6 +20,7 @@ pub struct Lot {
     #[serde(default)] pub first_bidder: String,
     #[serde(default)] pub total: f64,
     #[serde(default)] pub participants: usize,
+    #[serde(default)] pub immune: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Default)]
@@ -160,6 +161,16 @@ pub fn lot_number(raw: &str) -> Option<i64> {
     if other || nums.len() != 1 { None } else { nums.pop() }
 }
 
+/// `Zbiruk`: a leading `+`/`-` (with or without a space) picks add/remove; the rest is the lot text.
+pub fn split_sign(input: &str, enabled: bool) -> (i8, String) {
+    if !enabled { return (1, input.to_string()); }
+    let t = input.trim_start();
+    for (ch, sign) in [('+', 1i8), ('-', -1i8), ('\u{2212}', -1i8)] {
+        if let Some(rest) = t.strip_prefix(ch) { return (sign, rest.trim_start().to_string()); }
+    }
+    (1, input.to_string())
+}
+
 /// find the best lot for a raw input: exact number, exact name, alias, then fuzzy (>= FUZZY_MIN)
 pub fn match_lot<'a>(lots: &'a [Lot], input: &str) -> Option<&'a Lot> {
     let raw = input.trim(); let n = norm(raw); if n.is_empty() { return None; }
@@ -186,7 +197,7 @@ impl AuctionState {
 
     pub fn make_lot(&mut self, title: &str, by_admin: bool) -> &Lot {
         let lot = Lot { id: uid(), number: self.next_number(), title: title.to_string(), aliases: Vec::new(),
-            pinned: false, adjust: 0.0, first_bidder: if by_admin { "admin".into() } else { String::new() }, total: 0.0, participants: 0 };
+            pinned: false, adjust: 0.0, first_bidder: if by_admin { "admin".into() } else { String::new() }, total: 0.0, participants: 0, immune: false };
         self.lots.push(lot); self.lots.last().unwrap()
     }
 
@@ -208,7 +219,7 @@ impl AuctionState {
 
     /// add a bid. `source` = twitch|discord|manual. Returns the lot title on a match, or None if queued.
     pub fn intake(&mut self, username: &str, amount: f64, user_input: &str, source: &str, redemption_id: &str) -> Result<Option<String>, String> {
-        if username.is_empty() || amount <= 0.0 { return Err("bad bid".into()); }
+        if username.is_empty() || amount == 0.0 || !amount.is_finite() { return Err("bad bid".into()); }
         let is_donation = source == "discord" || source == "monobank" || source == "webhook";
         let is_points = source == "twitch";
         if self.settings.source == "points" && is_donation { return Err("donations disabled".into()); }
@@ -224,7 +235,18 @@ impl AuctionState {
             lot_title: matched.as_ref().map(|m| m.1.clone()).unwrap_or_default(), username: username.to_string(),
             source: source.to_string(), amount, redemption_id: redemption_id.to_string(), user_input: user_input.to_string(), at: now_ms() };
 
-        if self.settings.mode == "manual" { self.pending.insert(0, bid); return Ok(None); }
+        if amount < 0.0 {
+            if self.settings.mode == "manual" { self.pending.insert(0, bid); return Ok(None); }
+            let Some((lot_id, lot_title)) = matched else { self.pending.insert(0, bid); return Ok(None); };
+            let allowed = self.lots.iter().find(|l| l.id == lot_id)
+                .map(|l| !l.immune && l.total + amount >= 0.0).unwrap_or(false);
+            if !allowed { self.pending.insert(0, bid); return Ok(None); }
+            if self.settings.mode == "auto" && !self.confirmed_lots.contains(&lot_id) {
+                self.pending.insert(0, bid); return Ok(None);
+            }
+            self.apply_bid(bid, &lot_id, &lot_title);
+            return Ok(Some(lot_title));
+        }        if self.settings.mode == "manual" { self.pending.insert(0, bid); return Ok(None); }
         if self.settings.mode == "full" {
             // full auto: apply a match, or create a lot from the text/donor; never queue
             let (lot_id, lot_title) = match matched {
@@ -250,6 +272,9 @@ impl AuctionState {
     /// apply a bid directly (used by intake + pending approval)
     pub fn apply_bid(&mut self, mut b: Bid, lot_id: &str, lot_title: &str) {
         b.lot_id = lot_id.to_string(); b.lot_title = lot_title.to_string();
+        if b.amount >= 2000.0 {
+            if let Some(l) = self.lots.iter_mut().find(|l| l.id == lot_id) { l.immune = true; }
+        }
         let had = self.log.iter().any(|x| x.lot_id == lot_id);
         // "new position" only for a brand-new lot entering an auction that already has another funded lot
         let other_lot_exists = self.lots.iter().any(|l| l.id != lot_id && l.total > 0.0);
@@ -321,6 +346,47 @@ mod tests {
         s.make_lot("Beta", true);
         s.confirmed_lots = s.lots.iter().map(|l| l.id.clone()).collect();
         s
+    }
+    #[test] fn zbiruk_sign_variants() {
+        assert_eq!(split_sign("+Alpha", true), (1i8, "Alpha".to_string()));
+        assert_eq!(split_sign("+ Alpha", true), (1i8, "Alpha".to_string()));
+        assert_eq!(split_sign("- 2", true), (-1i8, "2".to_string()));
+        assert_eq!(split_sign("-Alpha", true), (-1i8, "Alpha".to_string()));
+        assert_eq!(split_sign("Alpha", true), (1i8, "Alpha".to_string()));
+        assert_eq!(split_sign("-Alpha", false), (1i8, "-Alpha".to_string()));
+    }
+
+    #[test] fn minus_bids_and_immunity() {
+        let mut s = AuctionState::default();
+        s.settings.mode = "full".into();
+        s.make_lot("Alpha", true);
+        s.intake("u", 100.0, "Alpha", "discord", "").unwrap();
+        assert_eq!(s.lots[0].total, 100.0);
+        s.intake("v", -40.0, "Alpha", "discord", "").unwrap();
+        assert_eq!(s.lots[0].total, 60.0);
+        // more than the current total: waits for the admin
+        assert_eq!(s.intake("w", -100.0, "Alpha", "discord", "").unwrap(), None);
+        assert_eq!(s.pending.len(), 1);
+        assert_eq!(s.lots[0].total, 60.0);
+        // manual approval still applies
+        let b = s.pending.remove(0);
+        let lid = s.lots[0].id.clone();
+        s.apply_bid(b, &lid, "Alpha");
+        assert_eq!(s.lots[0].total, -40.0);
+    }
+
+    #[test] fn single_2000_donation_gives_immunity() {
+        let mut s = AuctionState::default();
+        s.settings.mode = "full".into();
+        s.make_lot("Big", true);
+        s.intake("u", 2000.0, "Big", "discord", "").unwrap();
+        assert!(s.lots[0].immune);
+        assert_eq!(s.intake("v", -100.0, "Big", "discord", "").unwrap(), None);
+        assert_eq!(s.pending.len(), 1);
+        let b = s.pending.remove(0);
+        let lid = s.lots[0].id.clone();
+        s.apply_bid(b, &lid, "Big");
+        assert_eq!(s.lots[0].total, 1900.0);
     }
     #[test] fn number_forms_match_lot() {
         let mut s = st();

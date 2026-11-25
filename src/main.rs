@@ -87,6 +87,7 @@ struct Config {
     #[serde(default = "d_true")] donatello_enabled: bool,
     channel: String,
     min_bid: f64,
+    zbiruk: bool,
     poll_seconds: u64,
     port: u16,
     webhook_enabled: bool,
@@ -102,6 +103,7 @@ impl Default for Config {
             donatello_enabled: true,
             channel: String::new(),
             min_bid: 10.0,
+            zbiruk: false,
             poll_seconds: 6,
             port: DEFAULT_PORT,
             webhook_enabled: false,
@@ -204,6 +206,7 @@ fn ingest_messages(
     cursor: &mut String,
     msgs: Vec<discord::Message>,
     min_bid: f64,
+    zbiruk: bool,
     first_run: bool,
     strict: bool,
     source: &str,
@@ -232,8 +235,10 @@ fn ingest_messages(
             match parsed {
                 Some(d) => {
                     if d.amount >= min_bid {
-                        if auc.intake(&d.donor, d.amount, &d.message, source, "").is_ok() {
-                            added.push(format!("{}: {:.0} from {} ({})", source, d.amount, d.donor, d.message.trim()));
+                        let (sign, text) = auction::split_sign(&d.message, zbiruk);
+                        let amount = d.amount * sign as f64;
+                        if auc.intake(&d.donor, amount, &text, source, "").is_ok() {
+                            added.push(format!("{}: {:.0} from {} ({})", source, amount, d.donor, text.trim()));
                         }
                     } else {
                         log(&format!(
@@ -277,7 +282,7 @@ fn poll_donatello(ctx: &Ctx, cfg: &Config) -> Result<Vec<String>, FetchError> {
         let mut st = ctx.state.lock().unwrap();
         let State { auc, seen_tx, last_msg_id, .. } = &mut *st;
         let before = last_msg_id.clone();
-        let added = ingest_messages(auc, seen_tx, last_msg_id, msgs, cfg.min_bid, first_run, true, "discord");
+        let added = ingest_messages(auc, seen_tx, last_msg_id, msgs, cfg.min_bid, cfg.zbiruk, first_run, true, "discord");
         (added, *last_msg_id != before)
     };
     if moved { ctx.save_state(); }
@@ -306,14 +311,14 @@ fn poll_webhook(ctx: &Ctx, cfg: &Config) -> Result<Vec<String>, FetchError> {
         let mut st = ctx.state.lock().unwrap();
         let State { auc, seen_webhook, webhook_last_msg_id, .. } = &mut *st;
         let before = webhook_last_msg_id.clone();
-        let added = ingest_messages(auc, seen_webhook, webhook_last_msg_id, msgs, cfg.min_bid, first_run, false, "webhook");
+        let added = ingest_messages(auc, seen_webhook, webhook_last_msg_id, msgs, cfg.min_bid, cfg.zbiruk, first_run, false, "webhook");
         (added, *webhook_last_msg_id != before)
     };
     if moved { ctx.save_state(); }
     Ok(added)
 }
 
-fn ingest_mono(st: &mut State, items: Vec<mono::StatementItem>, min_bid: f64) -> Vec<String> {
+fn ingest_mono(st: &mut State, items: Vec<mono::StatementItem>, min_bid: f64, zbiruk: bool) -> Vec<String> {
     let mut items = items;
     items.sort_by_key(|t| t.time);
     let mut added = Vec::new();
@@ -333,8 +338,10 @@ fn ingest_mono(st: &mut State, items: Vec<mono::StatementItem>, min_bid: f64) ->
             .or_else(|| tx.description.clone().filter(|s| !s.trim().is_empty()))
             .unwrap_or_else(|| "Анонім".into());
         let msg = tx.comment.clone().unwrap_or_default();
-        if auc.intake(&donor, uah, &msg, "monobank", "").is_ok() {
-            added.push(format!("monobank: {:.0} from {} ({})", uah, donor, msg.trim()));
+        let (sign, text) = crate::auction::split_sign(&msg, zbiruk);
+        let signed = uah * sign as f64;
+        if auc.intake(&donor, signed, &text, "monobank", "").is_ok() {
+            added.push(format!("monobank: {:.0} from {} ({})", signed, donor, text.trim()));
         }
     }
     added
@@ -371,7 +378,7 @@ fn poll_monobank(ctx: &Ctx, cfg: &Config) -> Result<Vec<String>, String> {
     let items = mono::statement(&account, token, from, to)?;
     let added = {
         let mut st = ctx.state.lock().unwrap();
-        let a = ingest_mono(&mut st, items, cfg.min_bid);
+        let a = ingest_mono(&mut st, items, cfg.min_bid, cfg.zbiruk);
         st.mono_last_ts = to;
         a
     };
@@ -511,6 +518,7 @@ fn settings_json(ctx: &Ctx) -> Value {
         o.insert("donatelloEnabled".into(), json!(cfg.donatello_enabled));
         o.insert("channel".into(), json!(cfg.channel));
         o.insert("minBid".into(), json!(cfg.min_bid));
+        o.insert("zbiruk".into(), json!(cfg.zbiruk));
         o.insert("pollSeconds".into(), json!(cfg.poll_seconds));
         o.insert("webhookEnabled".into(), json!(cfg.webhook_enabled));
         o.insert("webhookUrl".into(), json!(cfg.webhook_url));
@@ -542,6 +550,7 @@ fn post_settings(ctx: &Ctx, v: &Value) {
                 reset_cursor(&mut st);
             }
         }
+        if let Some(x) = v.get("zbiruk").and_then(Value::as_bool) { cfg.zbiruk = x; }
         if let Some(x) = v.get("minBid").and_then(Value::as_f64) {
             if x >= 0.0 { cfg.min_bid = x; }
         }
@@ -894,11 +903,13 @@ fn handle(ctx: &Arc<Ctx>, mut request: Request) {
             "/api/auc/pending/add" => {
                 let id = g(&v, "id").to_string();
                 let number = gf(&v, "number");
+                let sign = gf(&v, "sign");
                 let mut st = ctx.state.lock().unwrap();
                 let a = &mut st.auc;
                 let target = a.lots.iter().find(|l| l.number as f64 == number).map(|l| (l.id.clone(), l.title.clone()));
                 if let (Some((lid, lt)), Some(i)) = (target, a.pending.iter().position(|b| b.id == id)) {
-                    let b = a.pending.remove(i);
+                    let mut b = a.pending.remove(i);
+                    if sign < 0.0 { b.amount = -b.amount.abs(); }
                     a.apply_bid(b, &lid, &lt);
                     if !lid.is_empty() && !a.confirmed_lots.contains(&lid) { a.confirmed_lots.push(lid); }
                 }
@@ -1151,7 +1162,7 @@ mod tests {
         // newest first on purpose, like the Discord API
         let added = {
             let State { auc, seen_tx, last_msg_id, .. } = &mut st;
-            ingest_messages(auc, seen_tx, last_msg_id, vec![m_fresh.clone(), m_old], 10.0, true, true, "discord")
+            ingest_messages(auc, seen_tx, last_msg_id, vec![m_fresh.clone(), m_old], 10.0, false, true, true, "discord")
         };
         assert_eq!(added.len(), 1);
         assert_eq!(st.last_msg_id, fresh);
@@ -1159,10 +1170,32 @@ mod tests {
 
         let added = {
             let State { auc, seen_tx, last_msg_id, .. } = &mut st;
-            ingest_messages(auc, seen_tx, last_msg_id, vec![m_fresh], 10.0, false, true, "discord")
+            ingest_messages(auc, seen_tx, last_msg_id, vec![m_fresh], 10.0, false, false, true, "discord")
         };
         assert!(added.is_empty());
         assert_eq!(st.auc.pending.len(), 1);
+    }
+    #[test]
+    fn zbiruk_minus_and_plus_messages() {
+        let mut st = State::default();
+        st.auc.settings.mode = "full".into();
+        st.auc.make_lot("Alpha", true);
+        st.auc.intake("seed", 500.0, "Alpha", "discord", "").unwrap();
+        let now = now_ms();
+        let minus = snowflake(now - 400);
+        let added = {
+            let State { auc, seen_tx, last_msg_id, .. } = &mut st;
+            ingest_messages(auc, seen_tx, last_msg_id, vec![msg(&minus, "\u{20B4}200", "- Alpha")], 10.0, true, true, true, "discord")
+        };
+        assert_eq!(added.len(), 1);
+        assert_eq!(st.auc.lots[0].total, 300.0);
+        let plus = snowflake(now - 300);
+        let added = {
+            let State { auc, seen_tx, last_msg_id, .. } = &mut st;
+            ingest_messages(auc, seen_tx, last_msg_id, vec![msg(&plus, "\u{20B4}100", "+ Alpha")], 10.0, true, false, true, "discord")
+        };
+        assert_eq!(added.len(), 1);
+        assert_eq!(st.auc.lots[0].total, 400.0);
     }
 
     #[test]
@@ -1171,7 +1204,7 @@ mod tests {
         let old = msg(&snowflake(now_ms() - 600_000), "₴100", "старий донат");
         let added = {
             let State { auc, seen_tx, last_msg_id, .. } = &mut st;
-            ingest_messages(auc, seen_tx, last_msg_id, vec![old.clone()], 10.0, true, true, "discord")
+            ingest_messages(auc, seen_tx, last_msg_id, vec![old.clone()], 10.0, false, true, true, "discord")
         };
         assert!(added.is_empty());
         assert_eq!(st.last_msg_id, old.id);

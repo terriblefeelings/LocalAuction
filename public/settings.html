@@ -255,6 +255,13 @@
         </div>
       </div>
     </div>
+    <div class="panel">
+      <div class="panel__head"><span class="panel__title">ZBIRUK</span></div>
+      <div class="panel__body">
+        <label class="chk"><input id="zbiruk" type="checkbox" /><span class="box"></span><span class="ontext">УВІМКНЕНО</span></label>
+        <p class="hint">+ перед текстом додає суму до лоту, − знімає. Без символу працює як зараз.</p>
+      </div>
+    </div>
   </section>
 
   <section id="tab_timer" class="tab">
@@ -356,6 +363,7 @@ async function load() {
     $('donatelloOn').checked = s.donatelloEnabled !== false;
     $('channel').value = s.channel || '';
     $('minBid').value = s.minBid ?? 10;
+    $('zbiruk').checked = !!s.zbiruk;
     $('mode').value = s.mode || 'auto';
     $('currency').value = s.currency || 'UAH';
     $('minutes').value = Math.round((s.timerSeconds || 0) / 60);
@@ -378,6 +386,7 @@ async function save() {
     donatelloEnabled: $('donatelloOn').checked,
     channel: $('channel').value,
     minBid: Number($('minBid').value || 0),
+    zbiruk: $('zbiruk').checked,
     mode: $('mode').value,
     currency: $('currency').value,
     timerSeconds: Number($('minutes').value || 0) * 60,
