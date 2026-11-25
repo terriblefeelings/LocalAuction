@@ -404,7 +404,9 @@
 .wheelcanvas,.wheelcol .setpanel,.setbody .setpanel,.wrow{border-style:solid;border-width:2px;border-color:var(--line2,var(--line))}
 :root[data-auction-theme="retro"] .wheelcanvas,:root[data-auction-theme="retro"] .wheelcol .setpanel,:root[data-auction-theme="retro"] .setbody .setpanel,:root[data-auction-theme="retro"] .wrow{border-width:2px;border-color:var(--rg-line2)}
 :root[data-auction-theme="terminal"] .wheelcanvas,:root[data-auction-theme="terminal"] .wheelcol .setpanel,:root[data-auction-theme="terminal"] .setbody .setpanel,:root[data-auction-theme="terminal"] .wrow{border-width:2px;border-color:var(--line2)}
-.mini.add{background:#e08a3c;color:#1a1306;border:0}
-.mini.add:hover{filter:brightness(1.06)}
+.mini.add{background:#3a2a1c;color:#E0A06C}
+.mini.add:hover{filter:brightness(1.12)}
+:root[data-auction-theme="retro"] .mini.add{background:linear-gradient(150deg,#5a4120,#33240f);color:#f0b878;border:1px solid #7a5a2a}
+:root[data-auction-theme="terminal"] .mini.add{background:none;border:1px solid var(--t-accent);color:var(--t-accent)}
 .addlot{display:inline-flex;align-items:center;gap:4px}
 .addlot input{width:54px;height:24px;padding:0 4px;font-size:12px;border-radius:4px;border:1px solid var(--line2,var(--line));background:var(--field);color:var(--fg);text-align:center}
