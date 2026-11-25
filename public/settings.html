@@ -55,6 +55,7 @@
   input, select { width:100%; height:28px; padding:0 7px; border:1px solid var(--line2); border-radius:0; background:var(--bg); color:var(--fg); font:inherit; font-size:12px; appearance:none; }
   input:focus, select:focus { outline:none; border-color:var(--acc); }
   .hint { margin:0; color:var(--faint); font-size:10.5px; }
+  .hint code { font:inherit; color:var(--fg); background:var(--sel); border:1px solid var(--line); padding:0 3px; }
   .secret { display:flex; align-items:center; gap:4px; }
   .secret input { flex:1; min-width:0; }
   .icon { width:28px; height:28px; padding:0; border:1px solid var(--line2); background:none; color:var(--dim); cursor:pointer; font:inherit; font-size:12px; }
@@ -259,7 +260,13 @@
       <div class="panel__head"><span class="panel__title">ZBIRUK</span></div>
       <div class="panel__body">
         <label class="chk"><input id="zbiruk" type="checkbox" /><span class="box"></span><span class="ontext">УВІМКНЕНО</span></label>
-        <p class="hint">+ перед текстом додає суму до лоту, − знімає. Без символу працює як зараз.</p>
+        <ol class="hint" style="margin:8px 0 0;padding-left:18px;line-height:1.65;font-size:11px">
+          <li><b>Додати до лоту:</b> надішліть номер лоту, його точну або схожу назву — або поставте <b>+</b> перед назвою чи номером. Варіанти: <code>2</code>, <code>Alpha</code>, <code>Alphha</code>, <code>#2</code>, <code>+ Alpha</code>, <code>+2</code>.</li>
+          <li><b>Зняти суму з лоту:</b> поставте <b>−</b> перед назвою або номером. Варіанти: <code>- Alpha</code>, <code>-Alpha</code>, <code>−2</code>, <code>-2</code>.</li>
+          <li>Зняття проходить, якщо в лоті достатньо коштів; якщо ні — ставка чекає в <b>Очікують</b>.</li>
+          <li>Лот, у який надійшов один донат від <b>2000 ₴</b>, захищений від автоматичного зняття — такі ставки теж чекають підтвердження. Кнопки <b>+</b> / <b>−</b> у списку очікуючих працюють завжди.</li>
+          <li>Діє для Discord, вебхука та коментарів Monobank. Без символу все працює як звичайна ставка.</li>
+        </ol>
       </div>
     </div>
   </section>
