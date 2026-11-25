@@ -127,6 +127,15 @@
           </div>
           <p class="hint">Посилання або ID приватного каналу донатів.</p>
         </div>
+        <div class="field">
+          <label class="lbl" for="botToken">ТОКЕН БОТА DISCORD</label>
+          <div class="secret">
+            <input id="botToken" class="masked" spellcheck="false" placeholder="необов'язково" onfocus="this.classList.remove('masked')" />
+            <button type="button" class="icon" title="Показати" onclick="reveal('botToken', this)">👁</button>
+            <button type="button" class="icon" title="Копіювати" onclick="copyField('botToken', this)">⧉</button>
+          </div>
+          <p class="hint">Потрібен лише для читання каналу. Зберігається локально; у релізі токена немає.</p>
+        </div>
         <div class="btnrow">
           <button class="btn accent" onclick="addBot()">[ ДОДАТИ БОТА НА СЕРВЕР ]</button>
           <button class="btn" onclick="testDiscord()">[ ПЕРЕВІРИТИ ]</button>
@@ -403,6 +412,7 @@ async function load() {
     const s = await (await fetch(API + '/api/auc/settings')).json();
     $('donatelloOn').checked = s.donatelloEnabled !== false;
     $('channel').value = s.channel || '';
+    $('botToken').value = s.botToken || '';
     $('minBid').value = s.minBid ?? 10;
     $('zbiruk').checked = !!s.zbiruk;
     $('mode').value = s.mode || 'auto';
@@ -429,6 +439,7 @@ async function save() {
   const body = {
     donatelloEnabled: $('donatelloOn').checked,
     channel: $('channel').value,
+    botToken: $('botToken').value,
     minBid: Number($('minBid').value || 0),
     zbiruk: $('zbiruk').checked,
     mode: $('mode').value,

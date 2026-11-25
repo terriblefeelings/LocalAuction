@@ -490,10 +490,10 @@ mod tests {
 
     #[test]
     fn webhook_url_parsing() {
-        let url = "https://discord.com/api/webhooks/1574332686154080276/X6HbTc83O1wTT1Ae78ZGVe-3zG6ujO24mCYrc9A0Bdfwv9_1PFaiawq1XOCQjjJly2oS";
+        let url = "https://discord.com/api/webhooks/123456789012345678/dummy_webhook_token_for_tests";
         let (id, token) = webhook_parts(url).unwrap();
-        assert_eq!(id, "1574332686154080276");
-        assert!(token.starts_with("X6Hb"));
+        assert_eq!(id, "123456789012345678");
+        assert!(token.starts_with("dummy_"));
         assert!(webhook_parts("https://example.com").is_none());
     }
 

@@ -89,6 +89,7 @@ fn log(msg: &str) {
 struct Config {
     #[serde(default = "d_true")] donatello_enabled: bool,
     channel: String,
+    #[serde(default)] bot_token: String,
     min_bid: f64,
     zbiruk: bool,
     poll_seconds: u64,
@@ -108,6 +109,7 @@ impl Default for Config {
         Config {
             donatello_enabled: true,
             channel: String::new(),
+            bot_token: String::new(),
             min_bid: 10.0,
             zbiruk: false,
             poll_seconds: 6,
@@ -152,8 +154,9 @@ impl Ctx {
             .or_else(|| std::env::var_os("APPDATA").map(|a| PathBuf::from(a).join("LocalAuction")))
             .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
         let _ = std::fs::create_dir_all(&base);
-        let cfg = std::fs::read_to_string(base.join("config.json")).ok()
+        let cfg: Config = std::fs::read_to_string(base.join("config.json")).ok()
             .and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default();
+        bot::set_token(&cfg.bot_token);
         let mut state: State = std::fs::read_to_string(base.join("state.json")).ok()
             .and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default();
         // no points source exists in this app
@@ -290,7 +293,7 @@ fn poll_donatello(ctx: &Ctx, cfg: &Config) -> Result<Vec<String>, FetchError> {
         (if st.last_msg_id.is_empty() { None } else { Some(st.last_msg_id.clone()) }, st.last_msg_id.is_empty())
     };
 
-    let msgs = discord::messages(&channel, bot::token(), after.as_deref())?;
+    let msgs = discord::messages(&channel, &bot::token(), after.as_deref())?;
     warn_empty(&msgs);
     let (added, moved) = {
         let mut st = ctx.state.lock().unwrap();
@@ -319,7 +322,7 @@ fn poll_webhook(ctx: &Ctx, cfg: &Config) -> Result<Vec<String>, FetchError> {
         let st = ctx.state.lock().unwrap();
         (if st.webhook_last_msg_id.is_empty() { None } else { Some(st.webhook_last_msg_id.clone()) }, st.webhook_last_msg_id.is_empty())
     };
-    let msgs = discord::messages(&channel, bot::token(), after.as_deref())?;
+    let msgs = discord::messages(&channel, &bot::token(), after.as_deref())?;
     warn_empty(&msgs);
     let (added, moved) = {
         let mut st = ctx.state.lock().unwrap();
@@ -417,7 +420,7 @@ fn open_url(url: &str) {
 }
 
 fn run_poller(ctx: Arc<Ctx>) {
-    if bot::token().is_empty() { log("discord: no bot token in this build - channel sources disabled"); }
+    if bot::token().is_empty() { log("discord: no bot token set - channel sources disabled"); }
     let mut err_discord = String::new();
     let mut err_webhook = String::new();
     let mut err_mono = String::new();
@@ -532,6 +535,7 @@ fn settings_json(ctx: &Ctx) -> Value {
     if let Some(o) = v.as_object_mut() {
         o.insert("donatelloEnabled".into(), json!(cfg.donatello_enabled));
         o.insert("channel".into(), json!(cfg.channel));
+        o.insert("botToken".into(), json!(cfg.bot_token));
         o.insert("minBid".into(), json!(cfg.min_bid));
         o.insert("zbiruk".into(), json!(cfg.zbiruk));
         o.insert("pollSeconds".into(), json!(cfg.poll_seconds));
@@ -567,6 +571,10 @@ fn post_settings(ctx: &Ctx, v: &Value) {
                 cfg.channel = c;
                 reset_cursor(&mut st);
             }
+        }
+        if let Some(x) = v.get("botToken").and_then(Value::as_str) {
+            cfg.bot_token = x.trim().to_string();
+            bot::set_token(&cfg.bot_token);
         }
         if let Some(x) = v.get("zbiruk").and_then(Value::as_bool) { cfg.zbiruk = x; }
         if let Some(x) = v.get("minBid").and_then(Value::as_f64) {
@@ -649,9 +657,9 @@ fn discord_test(ctx: &Ctx, v: &Value) -> Value {
 
     if channel.is_empty() { return json!({ "ok": false, "error": "немає ID каналу" }); }
 
-    match discord::messages(&channel, bot::token(), None) {
+    match discord::messages(&channel, &bot::token(), None) {
         Ok(msgs) => {
-            let name = discord::channel_name(&channel, bot::token()).unwrap_or_default();
+            let name = discord::channel_name(&channel, &bot::token()).unwrap_or_default();
             let empty = !msgs.is_empty() && msgs.iter().all(|m| m.content.is_empty() && m.embeds.is_empty());
             let sample = msgs.iter().find(|m| discord::parse_donation(m).is_some()).cloned()
                 .or_else(|| msgs.into_iter().find(|m| !m.embeds.is_empty()));
@@ -681,9 +689,9 @@ fn webhook_test(ctx: &Ctx, v: &Value) -> Value {
         Ok(c) => c,
         Err(e) => return json!({ "ok": false, "error": err_text(&e) }),
     };
-    let name = discord::channel_name(&channel, bot::token()).unwrap_or_default();
+    let name = discord::channel_name(&channel, &bot::token()).unwrap_or_default();
 
-    match discord::messages(&channel, bot::token(), None) {
+    match discord::messages(&channel, &bot::token(), None) {
         Ok(msgs) => {
             let empty = !msgs.is_empty() && msgs.iter().all(|m| m.content.is_empty() && m.embeds.is_empty());
             let sample = msgs.iter().find(|m| discord::parse_webhook_donation(m).is_some()).cloned()
