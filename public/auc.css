@@ -407,6 +407,6 @@
 .mini.add{background:#3a2a1c;color:#E0A06C}
 .mini.add:hover{filter:brightness(1.12)}
 :root[data-auction-theme="retro"] .mini.add{background:linear-gradient(150deg,#5a4120,#33240f);color:#f0b878;border:1px solid #7a5a2a}
-:root[data-auction-theme="terminal"] .mini.add{background:none;border:1px solid var(--t-accent);color:var(--t-accent)}
+:root[data-auction-theme="terminal"] .mini.add{background:none;border:1px solid #e08a3c;color:#e08a3c}
 .addlot{display:inline-flex;align-items:center;gap:4px}
 .addlot input{width:54px;height:24px;padding:0 4px;font-size:12px;border-radius:4px;border:1px solid var(--line2,var(--line));background:var(--field);color:var(--fg);text-align:center}
