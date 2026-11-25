@@ -29,6 +29,7 @@ const AUCTION_SVG: &str = include_str!("../public/auction.svg");
 const ROULETTE_SVG: &str = include_str!("../public/roulette.svg");
 const LUMASIK_PNG: &[u8] = include_bytes!("../public/lumasik.png");
 const INFO_JPG: &[u8] = include_bytes!("../public/info.jpg");
+const NERD_WOFF2: &[u8] = include_bytes!("../public/nerd.woff2");
 const LUMA: [&[u8]; 17] = [
     include_bytes!("../public/luma/luma1.mp3"),
     include_bytes!("../public/luma/luma2.mp3"),
@@ -793,6 +794,7 @@ fn handle(ctx: &Arc<Ctx>, mut request: Request) {
             "/roulette.svg" => return respond_text(request, "image/svg+xml", ROULETTE_SVG),
             "/lumasik.png" => return respond_bytes(request, "image/png", LUMASIK_PNG),
             "/info.jpg" => return respond_bytes(request, "image/jpeg", INFO_JPG),
+            "/nerd.woff2" => return respond_bytes(request, "font/woff2", NERD_WOFF2),
             p if p.starts_with("/luma/") => {
                 let name = p.trim_start_matches("/luma/").trim_end_matches(".mp3").trim_start_matches("luma");
                 if let Ok(n) = name.parse::<usize>() {
