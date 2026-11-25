@@ -220,6 +220,40 @@
         </div>
       </div>
     </div>
+    <div class="panel">
+      <div class="panel__head">
+        <span class="panel__title">MONOBANK · ВІДЖЕТ <span class="tag">ЧУЖА БАНКА</span></span>
+        <label class="chk"><input id="monoWidgetOn" type="checkbox" onchange="syncWidget()" /><span class="box"></span><span class="ontext">УВІМКНЕНО</span></label>
+      </div>
+      <div class="panel__body" id="monoWidgetFields" hidden>
+        <div class="grid">
+          <div class="field">
+            <label class="lbl" for="monoWidgetJar">ID БАНКИ (JAR)</label>
+            <div class="secret">
+              <input id="monoWidgetJar" spellcheck="false" placeholder="3cQzLKF6YY5A4AeKpsQNPNiChbSiFNuw" />
+              <button type="button" class="icon" title="Копіювати" onclick="copyField('monoWidgetJar', this)">⧉</button>
+            </div>
+          </div>
+          <div class="field">
+            <label class="lbl" for="monoWidgetToken">JAR TOKEN</label>
+            <div class="secret">
+              <input id="monoWidgetToken" class="masked" spellcheck="false" placeholder="jarToken" onfocus="this.classList.remove('masked')" />
+              <button type="button" class="icon" title="Показати" onclick="reveal('monoWidgetToken', this)">👁</button>
+              <button type="button" class="icon" title="Копіювати" onclick="copyField('monoWidgetToken', this)">⧉</button>
+            </div>
+          </div>
+        </div>
+        <div class="guide">
+          <div class="guide__title">БАНКА ІНШОЇ ЛЮДИНИ</div>
+          <ol>
+            <li>Відкрийте посилання віджета банки: <code>widget.html?jar=…&amp;jarToken=…</code>.</li>
+            <li>Скопіюйте <b>jar</b> (ID банки) та <b>jarToken</b> у поля вище.</li>
+            <li>Увімкніть перемикач і натисніть <b>[ ЗБЕРЕГТИ ]</b>.</li>
+          </ol>
+          <p class="hint">Персональний API не бачить чужі банки. Віджет надсилає суму та «Від: ім'я» без коментаря — такі донати зіставляються вручну в «Очікують». Не вмикайте віджет і API для однієї банки — донат задвоїться.</p>
+        </div>
+      </div>
+    </div>
   </section>
 
   <section id="tab_bids" class="tab">
@@ -332,6 +366,7 @@ function tab(name) {
 function syncOptional() {
   $('webhookFields').hidden = !$('webhookOn').checked;
   $('monoFields').hidden = !$('monoOn').checked;
+  $('monoWidgetFields').hidden = !$('monoWidgetOn').checked;
 }
 
 function applyTheme(t) {
@@ -383,6 +418,9 @@ async function load() {
     $('monoOn').checked = !!s.monobankEnabled;
     $('monoToken').value = s.monobankToken || '';
     $('monoJar').value = s.monobankJar || '';
+    $('monoWidgetOn').checked = !!s.monoWidgetEnabled;
+    $('monoWidgetJar').value = s.monoWidgetJar || '';
+    $('monoWidgetToken').value = s.monoWidgetToken || '';
     syncOptional();
   } catch { say(false, 'не вдалося завантажити налаштування'); }
 }
@@ -406,6 +444,9 @@ async function save() {
     monobankEnabled: $('monoOn').checked,
     monobankToken: $('monoToken').value,
     monobankJar: $('monoJar').value,
+    monoWidgetEnabled: $('monoWidgetOn').checked,
+    monoWidgetJar: $('monoWidgetJar').value,
+    monoWidgetToken: $('monoWidgetToken').value,
   };
   try {
     const r = await fetch(API + '/api/auc/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });

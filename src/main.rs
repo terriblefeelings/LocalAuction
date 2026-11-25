@@ -7,6 +7,7 @@ mod bot;
 mod discord;
 mod icon;
 mod mono;
+mod monowidget;
 mod update;
 
 use auction::{AuctionSettings, AuctionState, Bid, Lot};
@@ -95,6 +96,9 @@ struct Config {
     monobank_enabled: bool,
     monobank_token: String,
     monobank_jar: String,
+    mono_widget_enabled: bool,
+    mono_widget_jar: String,
+    mono_widget_token: String,
 }
 fn d_true() -> bool { true }
 impl Default for Config {
@@ -111,6 +115,9 @@ impl Default for Config {
             monobank_enabled: false,
             monobank_token: String::new(),
             monobank_jar: String::new(),
+            mono_widget_enabled: false,
+            mono_widget_jar: String::new(),
+            mono_widget_token: String::new(),
         }
     }
 }
@@ -125,6 +132,7 @@ struct State {
     mono_account: String,
     mono_account_jar: String,
     mono_last_ts: i64,
+    seen_widget: Vec<String>,
     seen_tx: Vec<String>,
     seen_webhook: Vec<String>,
     seen_mono: Vec<String>,
@@ -360,14 +368,15 @@ fn poll_monobank(ctx: &Ctx, cfg: &Config) -> Result<Vec<String>, String> {
         let info = mono::client_info(token)?;
         let found = info.jars.iter()
             .find(|j| j.id == jar || j.send_id.as_deref().map(mono::short_send_id) == Some(jar.clone()))
-            .ok_or_else(|| format!("банку {} не знайдено на цьому токені", jar))?;
+            .ok_or_else(|| format!("jar {} is not on this token (use the widget mode for foreign jars)", jar))?;
         let mut st = ctx.state.lock().unwrap();
         st.mono_account = found.id.clone();
         st.mono_account_jar = jar.clone();
         st.mono_last_ts = 0;
-        found.id.clone()
+        let id = found.id.clone();
+        drop(st);
+        id
     };
-
     let to = now_secs();
     let from = {
         let st = ctx.state.lock().unwrap();
@@ -525,6 +534,9 @@ fn settings_json(ctx: &Ctx) -> Value {
         o.insert("monobankEnabled".into(), json!(cfg.monobank_enabled));
         o.insert("monobankToken".into(), json!(cfg.monobank_token));
         o.insert("monobankJar".into(), json!(cfg.monobank_jar));
+        o.insert("monoWidgetEnabled".into(), json!(cfg.mono_widget_enabled));
+        o.insert("monoWidgetJar".into(), json!(cfg.mono_widget_jar));
+        o.insert("monoWidgetToken".into(), json!(cfg.mono_widget_token));
     }
     v
 }
@@ -576,7 +588,9 @@ fn post_settings(ctx: &Ctx, v: &Value) {
                 cfg.monobank_jar = j;
                 reset_mono(&mut st);
             }
-        }
+        }        if let Some(x) = v.get("monoWidgetEnabled").and_then(Value::as_bool) { cfg.mono_widget_enabled = x; }
+        if let Some(x) = v.get("monoWidgetJar").and_then(Value::as_str) { cfg.mono_widget_jar = x.trim().to_string(); }
+        if let Some(x) = v.get("monoWidgetToken").and_then(Value::as_str) { cfg.mono_widget_token = x.trim().to_string(); }
 
         let s = &mut st.auc.settings;
         if let Some(x) = v.get("mode").and_then(Value::as_str) { s.mode = x.into(); }
@@ -1064,6 +1078,8 @@ fn main() {
             });
             let poller = ctx.clone();
             std::thread::spawn(move || run_poller(poller));
+            let widget = ctx.clone();
+            monowidget::spawn(widget);
             log(&format!("auction: http://localhost:{}/", port));
             let api = format!("http://127.0.0.1:{}", port);
             let html = SETTINGS_HTML
