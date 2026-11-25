@@ -402,35 +402,22 @@ fn leading_number(s: &str) -> Option<f64> {
     parse_number(&t)
 }
 
-/// The numeric token(s) right before a currency mark, with the start offset.
-/// Only purely numeric tokens are joined (space thousands), so a donor name ending
-/// in digits ("Test500 500 UAH") yields 500, not 500500.
+/// The token right before a currency mark, with its start offset.
+/// Names can end with digits ("Test 2500 200 UAH"), so only the last token is the amount;
+/// no space-thousands merging.
 fn trailing_number_span(s: &str) -> Option<(f64, usize)> {
-    let mut token_end = s.trim_end().len();
-    let mut start = token_end;
-    let mut parts: Vec<&str> = Vec::new();
-    loop {
-        while token_end > 0 {
-            let (i, ch) = s[..token_end].char_indices().next_back().unwrap();
-            if ch.is_whitespace() { token_end = i } else { break }
-        }
-        if token_end == 0 { break }
-        let mut ts = token_end;
-        while ts > 0 {
-            let (i, ch) = s[..ts].char_indices().next_back().unwrap();
-            if ch.is_whitespace() { break } else { ts = i }
-        }
-        let tok = &s[ts..token_end];
-        if !tok.chars().all(|c| c.is_ascii_digit() || c == ',' || c == '.') { break }
-        parts.push(tok);
-        start = ts;
-        token_end = ts;
+    let trimmed = s.trim_end();
+    let end = trimmed.len();
+    if end == 0 { return None }
+    let mut start = end;
+    while start > 0 {
+        let (i, ch) = trimmed[..start].char_indices().next_back().unwrap();
+        if ch.is_whitespace() { break } else { start = i }
     }
-    if parts.is_empty() { return None; }
-    let joined: String = parts.iter().rev().cloned().collect();
-    parse_number(&joined).map(|v| (v, start))
+    let tok = &trimmed[start..end];
+    if !tok.chars().all(|c| c.is_ascii_digit() || c == ',' || c == '.') { return None }
+    parse_number(tok).map(|v| (v, start))
 }
-
 fn trailing_number(s: &str) -> Option<f64> { trailing_number_span(s).map(|(v, _)| v) }
 
 /// "₴100", "1 234,56", "1,234.56" -> f64.
@@ -582,11 +569,12 @@ mod tests {
     }
 
     #[test]
-    fn plain_text_space_thousands() {
-        let m = Message { id: "14".into(), content: "Ivan 1 500 UAH\n-".into(), ..Default::default() };
+    fn plain_text_name_ending_with_number() {
+        let m = Message { id: "14".into(), content: "Test 2500 200 UAH\nTest 2500".into(), ..Default::default() };
         let d = parse_webhook_donation(&m).expect("donation");
-        assert_eq!(d.donor, "Ivan");
-        assert_eq!(d.amount, 1500.0);
+        assert_eq!(d.donor, "Test 2500");
+        assert_eq!(d.amount, 200.0);
+        assert_eq!(d.message, "Test 2500");
     }
     #[test]
     fn amount_forms() {
