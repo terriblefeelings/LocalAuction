@@ -930,7 +930,7 @@ fn handle(ctx: &Arc<Ctx>, mut request: Request) {
                 } else { None };
                 let target = match existing {
                     Some(t) => Some(t),
-                    None if !title.is_empty() => {
+                    None if sign > 0.0 && !title.is_empty() => {
                         let l = a.make_lot(&title, true);
                         Some((l.id.clone(), l.title.clone()))
                     }
