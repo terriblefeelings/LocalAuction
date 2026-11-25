@@ -149,6 +149,8 @@ try {
     $null = post '/api/auc/settings' @{ mode = 'full' }
     $null = post '/api/auc/bid' @{ username = 'T'; amount = 10; userInput = 'T-C'; source = 'discord' }
     ok 'timer: full auto existing +10' ((state).remainingMs -eq ($r0 + 140000)) ("rem=" + (state).remainingMs)
+    $null = post '/api/auc/lots' @{ title = 'T-D' }
+    ok 'timer: admin new lot +30' ((state).remainingMs -eq ($r0 + 170000)) ("rem=" + (state).remainingMs)
 
     # timer
     $null = post '/api/auc/timer' @{ seconds = 60 }

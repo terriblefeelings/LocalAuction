@@ -860,7 +860,8 @@ fn handle(ctx: &Arc<Ctx>, mut request: Request) {
                 let title = g(&v, "title").trim().to_string();
                 if !title.is_empty() {
                     let mut st = ctx.state.lock().unwrap();
-                    st.auc.make_lot(&title, true);
+                    let id = st.auc.make_lot(&title, true).id.clone();
+                    st.auc.mark_admin_new_lot(&id);
                     drop(st);
                     ctx.save_state();
                 }

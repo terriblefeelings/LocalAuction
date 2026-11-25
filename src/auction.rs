@@ -21,6 +21,7 @@ pub struct Lot {
     #[serde(default)] pub total: f64,
     #[serde(default)] pub participants: usize,
     #[serde(default)] pub immune: bool,
+    #[serde(default)] pub position_counted: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Default)]
@@ -198,7 +199,7 @@ impl AuctionState {
 
     pub fn make_lot(&mut self, title: &str, by_admin: bool) -> &Lot {
         let lot = Lot { id: uid(), number: self.next_number(), title: title.to_string(), aliases: Vec::new(),
-            pinned: false, adjust: 0.0, first_bidder: if by_admin { "admin".into() } else { String::new() }, total: 0.0, participants: 0, immune: false };
+            pinned: false, adjust: 0.0, first_bidder: if by_admin { "admin".into() } else { String::new() }, total: 0.0, participants: 0, immune: false, position_counted: false };
         self.lots.push(lot); self.lots.last().unwrap()
     }
 
@@ -290,6 +291,7 @@ impl AuctionState {
             || self.log.iter().any(|x| x.lot_id == lot_id);
         // "new position" only for a brand-new lot entering an auction that already has another funded lot
         let other_lot_exists = self.lots.iter().any(|l| l.id != lot_id && l.total > 0.0);
+        let counted = self.lots.iter().find(|l| l.id == lot_id).map(|l| l.position_counted).unwrap_or(false);
         let before_top = self.top_lot().map(|l| l.id.clone());
         if let Some(l) = self.lots.iter_mut().find(|l| l.id == lot_id) { if l.first_bidder.is_empty() { l.first_bidder = b.username.clone(); } }
         self.log.insert(0, b.clone());
@@ -298,7 +300,10 @@ impl AuctionState {
         let after_top = self.top_lot().map(|l| l.id.clone());
         // a leader change needs an existing leader; the first lot never counts
         let leader_changed = before_top.is_some() && after_top.is_some() && after_top != before_top;
-        let new_position = !had && other_lot_exists;
+        let new_position = !had && other_lot_exists && !counted;
+        if !had && other_lot_exists {
+            if let Some(l) = self.lots.iter_mut().find(|l| l.id == lot_id) { l.position_counted = true; }
+        }
         self.extend_timer(&b.source, leader_changed, new_position, had);
     }
 
@@ -329,14 +334,28 @@ impl AuctionState {
         if delta == 0.0 || !delta.is_finite() { return; }
         let Some(lot) = self.lots.iter().find(|l| l.id == lot_id) else { return };
         let had = lot.total > 0.0 || self.log.iter().any(|b| b.lot_id == lot_id);
+        let counted = lot.position_counted;
         let other_lot_exists = self.lots.iter().any(|l| l.id != lot_id && l.total > 0.0);
         let before_top = self.top_lot().map(|l| l.id.clone());
         if let Some(l) = self.lots.iter_mut().find(|l| l.id == lot_id) { l.adjust += delta; }
         self.recompute();
         let after_top = self.top_lot().map(|l| l.id.clone());
         let leader_changed = before_top.is_some() && after_top.is_some() && after_top != before_top;
-        let new_position = !had && other_lot_exists;
+        let new_position = !had && other_lot_exists && !counted;
+        if !had && other_lot_exists {
+            if let Some(l) = self.lots.iter_mut().find(|l| l.id == lot_id) { l.position_counted = true; }
+        }
         self.extend_timer("manual", leader_changed, new_position, had);
+    }
+
+    /// Admin created a lot: "new position" fires on creation, not on its first funding.
+    pub fn mark_admin_new_lot(&mut self, lot_id: &str) {
+        let other_lot_exists = self.lots.iter().any(|l| l.id != lot_id && l.total > 0.0);
+        if !other_lot_exists { return; }
+        let already = self.lots.iter().find(|l| l.id == lot_id).map(|l| l.position_counted).unwrap_or(true);
+        if already { return; }
+        if let Some(l) = self.lots.iter_mut().find(|l| l.id == lot_id) { l.position_counted = true; }
+        self.extend_timer("manual", false, true, false);
     }
 
     /// pick a winner: mode = "top" (highest lot) or "wheel" (weighted random)
@@ -588,6 +607,18 @@ mod tests {
         assert_eq!(s.remaining_ms, 600_000); // no existing bid yet
         s.intake("u", 10.0, "Alpha", "discord", "").unwrap();
         assert_eq!(s.remaining_ms, 610_000); // lot already had a bid
+    }
+    #[test] fn admin_new_lot_extends_once() {
+        let mut s = AuctionState::default();
+        s.settings.new_position_donations = 30.0;
+        s.make_lot("A", true);
+        let a = s.lots[0].id.clone();
+        s.manual_adjust(&a, 100.0);
+        let b = s.make_lot("B", true).id.clone();
+        s.mark_admin_new_lot(&b);
+        assert_eq!(s.remaining_ms, 630_000);
+        s.manual_adjust(&b, 100.0);
+        assert_eq!(s.remaining_ms, 630_000); // funding must not count the position twice
     }
     #[test] fn manual_money_then_bid_counts_as_existing() {
         let mut s = AuctionState::default();
