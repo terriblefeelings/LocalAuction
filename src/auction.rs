@@ -301,7 +301,11 @@ impl AuctionState {
         self.extend_timer(&b.source, leader_changed, new_position, had);
     }
 
-    fn top_lot(&self) -> Option<&Lot> { self.lots.iter().filter(|l| l.total > 0.0).max_by(|a, b| a.total.partial_cmp(&b.total).unwrap_or(std::cmp::Ordering::Equal)) }
+    fn top_lot(&self) -> Option<&Lot> {
+        self.lots.iter().filter(|l| l.total > 0.0).enumerate()
+            .max_by(|(i, a), (j, b)| a.total.partial_cmp(&b.total).unwrap_or(std::cmp::Ordering::Equal).then_with(|| j.cmp(i)))
+            .map(|(_, l)| l)
+    }
     fn rank_of(&self, lot_id: &str) -> Option<usize> {
         let mut v: Vec<&Lot> = self.lots.iter().filter(|l| l.total > 0.0).collect();
         v.sort_by(|a, b| b.total.partial_cmp(&a.total).unwrap_or(std::cmp::Ordering::Equal));
@@ -317,6 +321,21 @@ impl AuctionState {
         if new_position { add += if pts { s.new_position_points } else { s.new_position_donations }; }
         if had { add += if pts { s.add_existing_points } else { s.add_existing_donations }; }
         self.add_seconds(add);
+    }
+
+    /// Admin +/- on a lot: same timer rules as a bid, using the donation settings.
+    pub fn manual_adjust(&mut self, lot_id: &str, delta: f64) {
+        if delta == 0.0 || !delta.is_finite() { return; }
+        let Some(lot) = self.lots.iter().find(|l| l.id == lot_id) else { return };
+        let had = lot.total > 0.0 || self.log.iter().any(|b| b.lot_id == lot_id);
+        let other_lot_exists = self.lots.iter().any(|l| l.id != lot_id && l.total > 0.0);
+        let before_top = self.top_lot().map(|l| l.id.clone());
+        if let Some(l) = self.lots.iter_mut().find(|l| l.id == lot_id) { l.adjust += delta; }
+        self.recompute();
+        let after_top = self.top_lot().map(|l| l.id.clone());
+        let leader_changed = before_top.is_some() && after_top.is_some() && after_top != before_top;
+        let new_position = !had && other_lot_exists;
+        self.extend_timer("manual", leader_changed, new_position, had);
     }
 
     /// pick a winner: mode = "top" (highest lot) or "wheel" (weighted random)
@@ -538,6 +557,24 @@ mod tests {
         s.confirmed_lots.push(id);
         s.intake("u", 10.0, "Only", "discord", "").unwrap();
         assert_eq!(s.remaining_ms, 600_000);
+    }
+    #[test] fn manual_adjust_extends_timer_by_rules() {
+        let mut s = AuctionState::default();
+        s.settings.leader_change_donations = 20.0;
+        s.settings.new_position_donations = 30.0;
+        s.settings.add_existing_donations = 10.0;
+        s.make_lot("Alpha", true);
+        let a = s.lots[0].id.clone();
+        s.manual_adjust(&a, 100.0);
+        assert_eq!(s.remaining_ms, 600_000); // first money, no other funded lot
+        s.make_lot("Beta", true);
+        let b = s.lots[1].id.clone();
+        s.manual_adjust(&b, 100.0);
+        assert_eq!(s.remaining_ms, 630_000); // new position
+        s.manual_adjust(&b, 50.0);
+        assert_eq!(s.remaining_ms, 660_000); // takes the lead + add existing
+        s.manual_adjust(&a, 200.0);
+        assert_eq!(s.remaining_ms, 690_000); // leader change + add existing
     }
     #[test] fn add_existing_applies_to_later_bids() {
         let mut s = AuctionState::default();

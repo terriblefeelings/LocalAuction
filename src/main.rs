@@ -884,8 +884,7 @@ fn handle(ctx: &Arc<Ctx>, mut request: Request) {
                 let id = g(&v, "lotId").to_string();
                 let d = gf(&v, "delta");
                 let mut st = ctx.state.lock().unwrap();
-                if let Some(l) = st.auc.lots.iter_mut().find(|l| l.id == id) { l.adjust += d; }
-                st.auc.recompute();
+                st.auc.manual_adjust(&id, d);
                 drop(st);
                 ctx.save_state();
             }
