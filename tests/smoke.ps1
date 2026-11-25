@@ -118,6 +118,38 @@ try {
     $b = $s.lots | Where-Object { $_.title -eq 'BrandNewLot' }
     ok 'full auto creates lot immediately' ($s.pending.Count -eq 0 -and $b -and $b.total -eq 400)
 
+    # timer rules across every action path
+    $null = post '/api/auc/reset' @{}
+    $null = post '/api/auc/settings' @{ mode = 'manual'; timerSeconds = 600; leaderChangeDonations = 20; newPositionDonations = 30; addExistingDonations = 10; timeMoreThanMin = 0 }
+    $null = post '/api/auc/timer/reset' @{}
+    $r0 = (state).remainingMs
+    $null = post '/api/auc/lots' @{ title = 'T-A' }
+    $null = post '/api/auc/lots' @{ title = 'T-B' }
+    $s = state
+    $a = lotByNumber $s 1
+    $b = lotByNumber $s 2
+    $null = post '/api/auc/lots/adjust' @{ lotId = $a.id; delta = 100 }
+    ok 'timer: manual first money +0' ((state).remainingMs -eq $r0)
+    $null = post '/api/auc/lots/adjust' @{ lotId = $b.id; delta = 100 }
+    ok 'timer: manual new position +30' ((state).remainingMs -eq ($r0 + 30000)) ("rem=" + (state).remainingMs)
+    $null = post '/api/auc/lots/adjust' @{ lotId = $b.id; delta = 50 }
+    ok 'timer: manual leader+existing +30' ((state).remainingMs -eq ($r0 + 60000)) ("rem=" + (state).remainingMs)
+    $null = post '/api/auc/bid' @{ username = 'T'; amount = 200; userInput = 'T-A'; source = 'discord' }
+    $s = state
+    $null = post '/api/auc/pending/approve' @{ id = $s.pending[0].id }
+    ok 'timer: approve applies rules +30' ((state).remainingMs -eq ($r0 + 90000)) ("rem=" + (state).remainingMs)
+    $null = post '/api/auc/bid' @{ username = 'T'; amount = 10; userInput = 'x'; source = 'webhook' }
+    $s = state
+    $null = post '/api/auc/pending/add' @{ id = $s.pending[0].id; number = 1 }
+    ok 'timer: pending add existing +10' ((state).remainingMs -eq ($r0 + 100000)) ("rem=" + (state).remainingMs)
+    $null = post '/api/auc/bid' @{ username = 'T'; amount = 10; userInput = 'x'; source = 'webhook' }
+    $s = state
+    $null = post '/api/auc/pending/add' @{ id = $s.pending[0].id; number = 0; title = 'T-C'; sign = 1 }
+    ok 'timer: pending add new lot +30' ((state).remainingMs -eq ($r0 + 130000)) ("rem=" + (state).remainingMs)
+    $null = post '/api/auc/settings' @{ mode = 'full' }
+    $null = post '/api/auc/bid' @{ username = 'T'; amount = 10; userInput = 'T-C'; source = 'discord' }
+    ok 'timer: full auto existing +10' ((state).remainingMs -eq ($r0 + 140000)) ("rem=" + (state).remainingMs)
+
     # timer
     $null = post '/api/auc/timer' @{ seconds = 60 }
     $s = state

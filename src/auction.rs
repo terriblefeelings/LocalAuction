@@ -286,7 +286,8 @@ impl AuctionState {
         if b.amount >= 2000.0 {
             if let Some(l) = self.lots.iter_mut().find(|l| l.id == lot_id) { l.immune = true; }
         }
-        let had = self.log.iter().any(|x| x.lot_id == lot_id);
+        let had = self.lots.iter().find(|l| l.id == lot_id).map(|l| l.total > 0.0).unwrap_or(false)
+            || self.log.iter().any(|x| x.lot_id == lot_id);
         // "new position" only for a brand-new lot entering an auction that already has another funded lot
         let other_lot_exists = self.lots.iter().any(|l| l.id != lot_id && l.total > 0.0);
         let before_top = self.top_lot().map(|l| l.id.clone());
@@ -587,6 +588,56 @@ mod tests {
         assert_eq!(s.remaining_ms, 600_000); // no existing bid yet
         s.intake("u", 10.0, "Alpha", "discord", "").unwrap();
         assert_eq!(s.remaining_ms, 610_000); // lot already had a bid
+    }
+    #[test] fn manual_money_then_bid_counts_as_existing() {
+        let mut s = AuctionState::default();
+        s.settings.mode = "auto".into();
+        s.settings.add_existing_donations = 10.0;
+        s.settings.new_position_donations = 30.0;
+        s.make_lot("Alpha", true);
+        s.make_lot("Beta", true);
+        let a = s.lots[0].id.clone();
+        let b = s.lots[1].id.clone();
+        s.manual_adjust(&a, 100.0);
+        s.manual_adjust(&b, 100.0);
+        let base = s.remaining_ms;
+        s.confirmed_lots.push(a);
+        s.intake("u", 10.0, "Alpha", "discord", "").unwrap();
+        assert_eq!(s.remaining_ms, base + 10_000); // add existing, not a new position
+    }
+    #[test] fn points_source_uses_points_values() {
+        let mut s = AuctionState::default();
+        s.settings.mode = "auto".into();
+        s.settings.source = "both".into();
+        s.settings.new_position_points = 7.0;
+        s.settings.new_position_donations = 30.0;
+        s.make_lot("A", true);
+        let a = s.lots[0].id.clone();
+        s.confirmed_lots.push(a);
+        s.intake("t", 10.0, "A", "twitch", "r1").unwrap();
+        assert_eq!(s.remaining_ms, 600_000);
+        s.make_lot("B", true);
+        let b = s.lots[1].id.clone();
+        s.confirmed_lots.push(b);
+        s.intake("t", 10.0, "B", "twitch", "r2").unwrap();
+        assert_eq!(s.remaining_ms, 607_000); // points values, not donations
+    }
+    #[test] fn time_more_than_min_blocks_extensions() {
+        let mut s = AuctionState::default();
+        s.settings.new_position_donations = 30.0;
+        s.settings.add_existing_donations = 10.0;
+        s.settings.time_more_than_min = 5.0;
+        s.make_lot("A", true);
+        s.make_lot("B", true);
+        let a = s.lots[0].id.clone();
+        let b = s.lots[1].id.clone();
+        s.manual_adjust(&a, 100.0);
+        s.remaining_ms = 600_000; // above the cap
+        s.manual_adjust(&b, 100.0);
+        assert_eq!(s.remaining_ms, 600_000);
+        s.remaining_ms = 200_000; // below the cap
+        s.manual_adjust(&b, 10.0);
+        assert_eq!(s.remaining_ms, 210_000);
     }
     #[test] fn filters_dedup_totals() {
         let mut s = st();
