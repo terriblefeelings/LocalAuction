@@ -1,6 +1,6 @@
 //! Monobank jar widget ("дружня банка"): foreign jars can't be read through the
-//! personal API, so we subscribe to the same public WebSocket the widget uses and
-//! turn alert items (amount + "Від: name") into bids.
+//! personal API. We subscribe to the same public WebSocket the widget uses and also
+//! reconcile the public balance once a minute, so a missed alert still becomes a bid.
 use crate::{log, now_ms, Ctx};
 use serde_json::Value;
 use std::sync::Arc;
@@ -11,7 +11,10 @@ use tungstenite::Message;
 const WS: &str = "wss://send.monobank.ua/api/web/wss";
 
 pub fn spawn(ctx: Arc<Ctx>) {
-    std::thread::spawn(move || run(ctx));
+    let ws = ctx.clone();
+    std::thread::spawn(move || run(ws));
+    let bal = ctx.clone();
+    std::thread::spawn(move || balance_loop(bal));
 }
 
 fn run(ctx: Arc<Ctx>) {
@@ -71,7 +74,8 @@ fn handle(ctx: &Arc<Ctx>, text: &str) {
             .or_else(|| it["id"].as_i64().map(|n| n.to_string()))
             .unwrap_or_default();
         if id.is_empty() { continue; }
-        let uah = it["amount"].as_f64().unwrap_or(0.0) / 100.0;
+        let kop = it["amount"].as_f64().unwrap_or(0.0);
+        let uah = kop / 100.0;
         let (donor, lot_text) = split_desc(it["description"].as_str().unwrap_or(""));
         let mut st = ctx.state.lock().unwrap();
         if st.seen_widget.iter().any(|x| x == &id) { continue; }
@@ -83,10 +87,58 @@ fn handle(ctx: &Arc<Ctx>, text: &str) {
             continue;
         }
         if st.auc.intake(&donor, uah, &lot_text, "monobank", "").is_ok() {
+            st.widget_ws_sum += kop.round() as i64;
             log(&format!("monobank widget: {:.0} from {}", uah, donor));
         }
     }
     if changed { ctx.save_state(); }
+}
+
+/// Balance reconciliation: catches alerts the socket missed (offline, competing
+/// widget page). WS items are added to `widget_ws_sum` first, so nothing counts twice.
+fn balance_loop(ctx: Arc<Ctx>) {
+    loop {
+        // /bank/jar is rate limited to roughly one request per five minutes per IP
+        std::thread::sleep(Duration::from_secs(300));
+        let (on, jar) = {
+            let c = ctx.cfg.lock().unwrap();
+            (c.mono_widget_enabled, c.mono_widget_jar.trim().to_string())
+        };
+        if !on || jar.is_empty() { continue; }
+        let Ok((_title, cur)) = crate::mono::public_jar(&jar) else { continue };
+        let min = ctx.cfg.lock().unwrap().min_bid;
+        let mut st = ctx.state.lock().unwrap();
+        if st.widget_jar != jar {
+            st.widget_jar = jar.clone();
+            st.widget_seen = 0;
+            st.widget_balance = cur;
+            st.widget_ws_sum = 0;
+            drop(st);
+            log(&format!("monobank widget: balance baseline {:.0} for {}", cur as f64 / 100.0, jar));
+            continue;
+        }
+        if st.widget_seen == 0 {
+            st.widget_seen = 1;
+            st.widget_balance = cur;
+            st.widget_ws_sum = 0;
+            drop(st);
+            log(&format!("monobank widget: balance baseline {:.0} for {}", cur as f64 / 100.0, jar));
+            continue;
+        }
+        let expected = st.widget_balance + st.widget_ws_sum;
+        let mut changed = false;
+        if cur > expected {
+            let uah = (cur - expected) as f64 / 100.0;
+            if uah >= min && st.auc.intake("Monobank", uah, "", "monobank", "").is_ok() {
+                log(&format!("monobank widget: +{:.0} by balance (no alert)", uah));
+                changed = true;
+            }
+        }
+        st.widget_balance = cur;
+        st.widget_ws_sum = 0;
+        drop(st);
+        if changed { ctx.save_state(); }
+    }
 }
 
 /// The widget alert shows "Від: Ілля Г." — that is the donor, not the lot text.

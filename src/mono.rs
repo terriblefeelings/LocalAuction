@@ -75,3 +75,18 @@ pub fn statement(account: &str, token: &str, from: i64, to: i64) -> Result<Vec<S
 pub fn short_send_id(send_id: &str) -> String {
     send_id.rsplit('/').next().unwrap_or("").to_string()
 }
+
+/// Public (no-auth) jar info, works for jars of other clients.
+pub fn public_jar(id: &str) -> Result<(String, i64), String> {
+    #[derive(Deserialize)]
+    struct PublicJar { #[serde(default)] title: Option<String>, #[serde(default)] amount: i64 }
+    let url = format!("{}/bank/jar/{}", BASE, id.trim());
+    match ureq::get(&url).set("User-Agent", "LocalAuction").timeout(Duration::from_secs(20)).call() {
+        Ok(r) => {
+            let text = body_utf8(r)?;
+            let j: PublicJar = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+            Ok((j.title.unwrap_or_default(), j.amount))
+        }
+        Err(e) => Err(e.to_string()),
+    }
+}
